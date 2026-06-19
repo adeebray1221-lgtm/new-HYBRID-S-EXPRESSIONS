@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hybrid's Expressions | Words by Students, For Everyone</title>
+    <!-- Favicon -->
+   <link rel="icon" type="image/png" href="/favicon.png" />
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+    <!-- Main Style Sheet -->
+    <link rel="stylesheet" href="style.css">
+    <!-- FontAwesome for some standard interface icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- App Container -->
+    <div id="app">
+        <!-- Top Navigation Bar -->
+        <header class="main-header">
+            <div class="header-container">
+                <!-- Left: Logo & School Title -->
+                <div class="school-brand" onclick="window.location.hash = '#/home'">
+                    <img src="images/school_logo.png" alt="Hybrid Public School Logo" class="school-logo" onerror="this.src='https://placehold.co/80x80/0b2240/ffffff?text=HPS'">
+                    <div class="brand-text">
+                        <span class="anniversary-badge">25 Years</span>
+                        <h1 class="school-name">Hybrid Public School</h1>
+                        <p class="school-tagline">Devoted to Scientific Approach</p>
+                    </div>
+                </div>
+
+                <!-- Center: Navigation Links -->
+                <nav class="nav-menu">
+                    <ul>
+                        <li><a href="#/home" id="nav-home" class="active"><i class="fa-solid fa-house"></i> Home</a></li>
+                        <li><a href="#/poems" id="nav-poems"><i class="fa-solid fa-feather"></i> Poems</a></li>
+                        <li><a href="#/stories" id="nav-stories"><i class="fa-solid fa-book-open"></i> Stories</a></li>
+                        <li><a href="#/writers" id="nav-writers"><i class="fa-solid fa-users"></i> Writers</a></li>
+                    </ul>
+                </nav>
+
+                <!-- Right: Platform Branding & Admin Trigger -->
+                <div class="platform-brand">
+                    <div class="platform-title">
+                        <span class="brand-primary">Hybrid's</span> <span class="brand-secondary">Expressions</span>
+                        <p class="platform-tagline">Words by Students, For Everyone</p>
+                    </div>
+                    <div class="admin-access" title="Admin Control Panel">
+                        <a href="#/admin" id="nav-admin" class="admin-btn"><i class="fa-solid fa-lock"></i></a>
+                    </div>
+                    <!-- Mobile Menu Trigger -->
+                    <button class="mobile-menu-toggle" id="menuToggle" aria-label="Toggle Navigation">
+                        <i class="fa-solid fa-bars"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="main-content">
+            
+            <!-- VIEW: Home & Feed -->
+            <section id="view-home" class="app-view">
+                <!-- Hero Banner Section -->
+                <div class="hero-banner">
+                    <div class="hero-content">
+                        <h2 class="hero-title">HYBRID'S <span class="leaf-icon" aria-hidden="true"><svg width="56" height="28" viewBox="0 0 64 32" xmlns="http://www.w3.org/2000/svg" role="img"><path d="M2 20c10-10 28-14 46-4-6-6-20-6-34 4-2 2-6 6-12 4zM62 12c-6 6-20 6-34 4 12-6 28-10 38-2 0 0-1-1-4-2z"/></svg></span> <span class="highlight-text">EXPRESSIONS</span></h2>
+                        <p class="hero-subtitle">Young Minds. Powerful Words.</p>
+                        <p class="hero-description">Welcome to Hybrid's Expressions – A vibrant platform dedicated to celebrating the creative voices of our students.</p>
+                    </div>
+                    <div class="hero-illustration">
+                        <img src="images/banner_illustration.png" alt="Creative Illustration" class="illustration-img" onerror="this.src='https://placehold.co/400x300/f4f6f9/0b2240?text=Creative+Writing'">
+                    </div>
+                </div>
+
+                <!-- Search Container -->
+                <div class="search-section">
+                    <div class="search-wrapper">
+                        <div class="search-label">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <span>Search by Student Name</span>
+                        </div>
+                        <div class="search-inputs">
+                            <input type="text" id="search-input" placeholder="Enter student name..." autocomplete="off">
+                            <button id="search-btn" class="btn-primary">Search</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filter & Content Header Section -->
+                <div class="content-header">
+                    <div class="section-title-wrapper">
+                        <div class="feather-icon-circle">
+                            <i class="fa-solid fa-feather-pointed"></i>
+                        </div>
+                        <div>
+                            <h3 class="section-title" id="feed-title">Latest Poems & Stories</h3>
+                            <p class="section-subtitle">Read, enjoy and support the young writers of Hybrid Public School.</p>
+                        </div>
+                    </div>
+                    <div class="filter-controls">
+                        <button class="filter-tab active" data-filter="all">All Submissions</button>
+                        <button class="filter-tab" data-filter="poem">Poems</button>
+                        <button class="filter-tab" data-filter="story">Stories</button>
+                        <button class="filter-tab" data-filter="alumni">Alumni</button>
+                    </div>
+                    <div class="language-controls">
+                        <button class="language-filter-btn active" data-lang="all">All Languages</button>
+                        <button class="language-filter-btn" data-lang="english">English</button>
+                        <button class="language-filter-btn" data-lang="hindi">Hindi</button>
+                    </div>
+                </div>
+
+                <!-- Feed Grid -->
+                <div id="posts-grid" class="cards-grid">
+                    <!-- Cards will be injected dynamically via JS -->
+                </div>
+                
+                <!-- No Results State -->
+                <div id="no-results" class="no-results-container hidden">
+                    <img src="https://img.icons8.com/isometric/512/search.png" alt="No results found" class="no-results-img">
+                    <h4>No writings found</h4>
+                    <p>We couldn't find any stories or poems matching "<span id="search-query-display"></span>".</p>
+                    <button id="reset-search-btn" class="btn-secondary">Clear Search</button>
+                </div>
+            </section>
+
+            <!-- VIEW: Story/Poem Details -->
+            <section id="view-details" class="app-view hidden">
+                <div class="detail-container">
+                    <div class="detail-back-bar">
+                        <button class="btn-back" onclick="history.back()"><i class="fa-solid fa-arrow-left"></i> Back to writings</button>
+                        <span id="detail-category-badge" class="badge">Poem</span>
+                    </div>
+
+                    <div class="detail-layout">
+                        <!-- Main Content Body (Left) -->
+                        <article class="detail-article">
+                            <h2 id="detail-title" class="detail-title">The Title of Writing</h2>
+                            <div class="detail-meta">
+                                <span class="meta-item"><i class="fa-regular fa-calendar"></i> <span id="detail-date">18 May 2024</span></span>
+                                <span class="meta-item"><i class="fa-regular fa-clock"></i> <span id="detail-read-time">3 min read</span></span>
+                            </div>
+
+                            <!-- Real story/poem content -->
+                            <div id="detail-content" class="detail-content-body Lora">
+                                <!-- Content injected here -->
+                            </div>
+
+                            <!-- Support Section (Like bar) -->
+                            <div class="detail-support-section">
+                                <button class="btn-like-large" id="detail-like-btn">
+                                    <i class="fa-solid fa-heart"></i>
+                                    <span>Like this writing</span>
+                                    <span class="like-badge-num" id="detail-likes-count">45</span>
+                                </button>
+                            </div>
+                        </article>
+
+                        <!-- Student Card Sidebar (Right) -->
+                        <aside class="detail-sidebar">
+                            <div class="student-profile-sidebar-card">
+                                <h4 class="sidebar-heading">About The Writer</h4>
+                                <div class="sidebar-student-info">
+                                    <img src="" alt="Student Profile" class="sidebar-student-photo" id="detail-student-photo">
+                                    <h3 id="detail-student-name" class="sidebar-student-name">Aarav Sharma</h3>
+                                    <p id="detail-student-grade" class="sidebar-student-grade">Class 8th Student</p>
+                                    <span class="school-verify"><i class="fa-solid fa-circle-check"></i> Verified Student</span>
+                                </div>
+                                <div class="sidebar-school-info">
+                                    <p><i class="fa-solid fa-graduation-cap"></i> Hybrid Public School</p>
+                                    <p>Encouraging creativity, innovation, and self-expression in all our students.</p>
+                                </div>
+                                <div class="sidebar-writer-stats">
+                                    <button class="btn-view-writer" id="detail-view-writer-btn">View All Works by Aarav</button>
+                                </div>
+                            </div>
+                        </aside>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW: Writers Directory -->
+            <section id="view-writers" class="app-view hidden">
+                <div class="writers-container">
+                    <div class="section-title-wrapper-centered">
+                        <div class="feather-icon-circle large">
+                            <i class="fa-solid fa-users"></i>
+                        </div>
+                        <h2 class="section-title">Our Student Writers</h2>
+                        <p class="section-subtitle">Meet the talented creative minds of Hybrid Public School who contribute their stories and poems.</p>
+                    </div>
+
+                    <!-- Writers Grid -->
+                    <div id="writers-grid" class="writers-grid">
+                        <!-- Student profiles injected dynamically -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW: Admin Panel -->
+            <section id="view-admin" class="app-view hidden">
+                <div class="admin-container">
+                    <!-- Login Form (If not logged in) -->
+                    <div id="admin-login-card" class="admin-card auth-card">
+                        <div class="admin-logo-wrapper">
+                            <i class="fa-solid fa-user-shield"></i>
+                        </div>
+                        <h3>Admin Control Panel</h3>
+                        <p>Access is restricted to school administrators. Please enter the access passcode to continue.</p>
+                        
+                        <form id="admin-login-form">
+                            <div class="form-group">
+                                <label for="admin-passcode"><i class="fa-solid fa-key"></i> Access Passcode</label>
+                                <input type="password" id="admin-passcode" placeholder="Enter passcode..." required>
+                                <div class="error-msg hidden" id="login-error">Incorrect passcode. Please try again.</div>
+                            </div>
+                            <button type="submit" class="btn-primary btn-block">Log In <i class="fa-solid fa-arrow-right-to-bracket"></i></button>
+                        </form>
+                    </div>
+
+                    <!-- Admin Dashboard (If logged in) -->
+                    <div id="admin-dashboard" class="admin-dashboard-layout hidden">
+                        <!-- Left: Form for adding/editing writing -->
+                        <div class="admin-card form-card">
+                            <div class="dashboard-section-header">
+                                <h3><i class="fa-solid fa-circle-plus"></i> Publish Student Writing</h3>
+                                <p>Add a new poem or story written by a student to publish it on the portal.</p>
+                            </div>
+
+                            <form id="publish-form" class="admin-form">
+                                <div class="form-row">
+                                    <div class="form-group col-md-4">
+                                        <label for="post-title">Writing Title</label>
+                                        <input type="text" id="post-title" placeholder="e.g. The Wings of Dreams" required>
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label for="post-category">Category</label>
+                                        <select id="post-category" required>
+                                            <option value="poem">Poem</option>
+                                            <option value="story">Story</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label for="post-language">Language</label>
+                                        <select id="post-language" required>
+                                            <option value="english">English</option>
+                                            <option value="hindi">Hindi</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group col-md-4">
+                                        <label for="student-name">Student Name</label>
+                                        <input type="text" id="student-name" placeholder="e.g. Aarav Sharma" required>
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label for="student-status">Student Status</label>
+                                        <select id="student-status" required>
+                                            <option value="current">Current Student</option>
+                                            <option value="alumni">Alumni Student</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label for="student-grade">Class / Batch</label>
+                                        <input type="text" id="student-grade" placeholder="e.g. Class 8th, Batch 2024" required>
+                                    </div>
+                                </div>
+
+                                <!-- Student Photo Option -->
+                                <div class="form-group">
+                                    <label>Student Photo</label>
+                                    <div class="image-source-tabs">
+                                        <button type="button" class="image-tab-btn active" data-source="avatar">Pre-set Avatar</button>
+                                        <button type="button" class="image-tab-btn" data-source="upload">Upload Photo</button>
+                                        <button type="button" class="image-tab-btn" data-source="url">Image URL</button>
+                                    </div>
+                                    
+                                    <!-- Photo Inputs -->
+                                    <div class="image-input-container">
+                                        <!-- Preset Avatars -->
+                                        <div id="source-avatar" class="image-input-field">
+                                            <div class="avatar-selector">
+                                                <label class="avatar-option">
+                                                    <input type="radio" name="student-avatar" value="avatar1" checked>
+                                                    <img src="https://api.dicebear.com/7.x/adventurer/svg?seed=Aarav" alt="Avatar 1">
+                                                </label>
+                                                <label class="avatar-option">
+                                                    <input type="radio" name="student-avatar" value="avatar2">
+                                                    <img src="https://api.dicebear.com/7.x/adventurer/svg?seed=Ananya" alt="Avatar 2">
+                                                </label>
+                                                <label class="avatar-option">
+                                                    <input type="radio" name="student-avatar" value="avatar3">
+                                                    <img src="https://api.dicebear.com/7.x/adventurer/svg?seed=Riya" alt="Avatar 3">
+                                                </label>
+                                                <label class="avatar-option">
+                                                    <input type="radio" name="student-avatar" value="avatar4">
+                                                    <img src="https://api.dicebear.com/7.x/adventurer/svg?seed=Vihaan" alt="Avatar 4">
+                                                </label>
+                                                <label class="avatar-option">
+                                                    <input type="radio" name="student-avatar" value="avatar5">
+                                                    <img src="https://api.dicebear.com/7.x/adventurer/svg?seed=Kabir" alt="Avatar 5">
+                                                </label>
+                                                <label class="avatar-option">
+                                                    <input type="radio" name="student-avatar" value="avatar6">
+                                                    <img src="https://api.dicebear.com/7.x/adventurer/svg?seed=Myra" alt="Avatar 6">
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <!-- Upload File -->
+                                        <div id="source-upload" class="image-input-field hidden">
+                                            <div class="file-upload-wrapper">
+                                                <input type="file" id="student-photo-file" accept="image/*">
+                                                <div class="file-upload-design">
+                                                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                                                    <p>Drag & drop or browse image file</p>
+                                                    <span id="file-upload-name">No file selected</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Direct URL -->
+                                        <div id="source-url" class="image-input-field hidden">
+                                            <input type="url" id="student-photo-url" placeholder="https://example.com/student-photo.jpg">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="post-content">Writing Content (Use double breaks for paragraphs)</label>
+                                    <textarea id="post-content" rows="12" placeholder="Write or paste the student's story or poem here..." required></textarea>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="post-date">Publishing Date</label>
+                                        <input type="date" id="post-date" required>
+                                    </div>
+                                    <div class="form-group col-md-6">
+                                        <label for="post-likes">Initial Likes</label>
+                                        <input type="number" id="post-likes" value="0" min="0">
+                                    </div>
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="submit" class="btn-primary" id="publish-submit-btn"><i class="fa-solid fa-paper-plane"></i> Publish Now</button>
+                                    <button type="reset" class="btn-secondary" id="publish-reset-btn">Reset</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Right: Manage Posts, Settings, Database backups -->
+                        <div class="admin-right-sidebar">
+                            <!-- Database Management Card -->
+                            <div class="admin-card database-card">
+                                <h3><i class="fa-solid fa-database"></i> Database Management</h3>
+                                <p>Ensure you backup your data. Since details are stored locally, clear browsing data can delete writings.</p>
+                                <div class="db-actions">
+                                    <button id="db-export-btn" class="btn-info btn-block"><i class="fa-solid fa-download"></i> Export database (JSON)</button>
+                                    
+                                    <div class="db-import-wrapper">
+                                        <label for="db-import-file" class="btn-warning btn-block text-center">
+                                            <i class="fa-solid fa-upload"></i> Import Database (JSON)
+                                        </label>
+                                        <input type="file" id="db-import-file" accept=".json" style="display: none;">
+                                    </div>
+                                    
+                                    <button id="db-reset-btn" class="btn-danger btn-block"><i class="fa-solid fa-trash-can"></i> Restore Default Data</button>
+                                </div>
+                            </div>
+
+                            <!-- Settings / Password Change -->
+                            <div class="admin-card settings-card">
+                                <h3><i class="fa-solid fa-gears"></i> Security Settings</h3>
+                                <form id="change-passcode-form">
+                                    <div class="form-group">
+                                        <label for="new-passcode">Change Admin Passcode</label>
+                                        <input type="password" id="new-passcode" placeholder="New passcode..." required>
+                                    </div>
+                                    <button type="submit" class="btn-secondary btn-block">Update Passcode</button>
+                                </form>
+                                <hr>
+                                <button id="admin-logout-btn" class="btn-secondary btn-block btn-logout"><i class="fa-solid fa-arrow-right-from-bracket"></i> Admin Log Out</button>
+                            </div>
+
+                            <!-- Published list -->
+                            <div class="admin-card list-card">
+                                <h3><i class="fa-solid fa-list"></i> Managed Writings (<span id="admin-posts-count">0</span>)</h3>
+                                <p>Click to view on site, or delete using the trash icon.</p>
+                                <div class="admin-posts-list-container">
+                                    <ul id="admin-posts-list" class="admin-posts-list">
+                                        <!-- Dynamic items list with delete action -->
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="main-footer">
+            <div class="footer-container">
+                <!-- Footer logo section -->
+                <div class="footer-brand">
+                    <img src="images/school_logo.png" alt="School Logo" class="footer-logo" onerror="this.src='https://placehold.co/60x60/0b2240/ffffff?text=HPS'">
+                    <div>
+                        <h4 class="footer-school-name">Hybrid Public School</h4>
+                        <p class="footer-school-tagline">Devoted to Scientific Approach</p>
+                    </div>
+                </div>
+
+                <!-- Central quote -->
+                <div class="footer-quote">
+                    <blockquote>"Every word a student writes today, builds the world of tomorrow."</blockquote>
+                </div>
+
+                <!-- Social Media Icons -->
+                <div class="footer-social">
+                    <a href="https://www.facebook.com/hybridschoolmtr/" target="_blank" rel="noopener noreferrer" class="social-icon facebook-icon" title="Follow us on Facebook">
+                        <i class="fa-brands fa-facebook-f"></i>
+                    </a>
+                    <a href="https://www.instagram.com/hybridpublicschool?igsh=MXVxN3EzeTNmc2ZpOQ==" target="_blank" rel="noopener noreferrer" class="social-icon instagram-icon" title="Follow us on Instagram">
+                        <i class="fa-brands fa-instagram"></i>
+                    </a>
+                    <a href="https://youtube.com/@hybridpublicschool1572?si=EjjVbueyJmElF7ru" target="_blank" rel="noopener noreferrer" class="social-icon youtube-icon" title="Subscribe on YouTube">
+                        <i class="fa-brands fa-youtube"></i>
+                    </a>
+                </div>
+
+                <!-- Copyright information -->
+                <div class="footer-copyright">
+                    <p>&copy; <span id="current-year">2026</span> Hybrid's Expressions. All Rights Reserved.</p>
+                    <p class="powered-by">Powered with <i class="fa-solid fa-heart footer-heart"></i> by Hybrid Public School</p>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Firebase Module -->
+    <script type="module">
+        import { initializeFirebase } from './firebase.js';
+        window.initializeFirebase = initializeFirebase;
+    </script>
+    
+    <!-- Application Script -->
+    <script src="app.js"></script>
+</body>
+</html>
