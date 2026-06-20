@@ -940,7 +940,6 @@ img {
     gap: 8px;
 }
 
-
 /* Serif font style for readable literary content */
 .detail-content-body {
     font-family: 'Lora', serif;
@@ -2504,5 +2503,40 @@ img {
         width: 38px;
         height: 38px;
         font-size: 0.9rem;
+    }
+}
+
+/* =========================================
+   ANNIVERSARY LOGO STYLING (Added)
+   ========================================= */
+.school-logo.anniversary-logo {
+    width: 92px;
+    height: 92px;
+    border-radius: 50%;
+    object-fit: contain;
+    background-color: #0b2240;
+    padding: 6px;
+    border: 5px solid #ffffff;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.school-logo.anniversary-logo:hover {
+    transform: scale(1.08) rotate(3deg);
+    box-shadow: 0 12px 30px rgba(229, 169, 59, 0.4);
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+    .school-logo.anniversary-logo {
+        width: 72px;
+        height: 72px;
+    }
+}
+
+@media (max-width: 480px) {
+    .school-logo.anniversary-logo {
+        width: 58px;
+        height: 58px;
     }
 }
