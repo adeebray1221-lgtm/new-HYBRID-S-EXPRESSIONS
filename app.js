@@ -866,7 +866,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     loginForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const inputPasscode = document.getElementById('admin-passcode').value;
-        const storedPasscode = localStorage.getItem('admin_passcode');
+        const storedPasscode = localStorage.getItem('admin_passcode'); 'arif@123.admin');
         const loginError = document.getElementById('login-error');
 
         if (inputPasscode === storedPasscode) {
