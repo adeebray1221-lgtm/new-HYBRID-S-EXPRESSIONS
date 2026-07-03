@@ -509,9 +509,14 @@ function toggleLikePost(id, element, siblingCountSpan) {
 
     // Persist likes count to Firestore
     updatePostLikes(id, post.likes)
-        .catch((error) => {
-            console.error("Error updating likes in Firestore:", error);
-        });
+       .catch((error) => {
+    console.error("Publish Error:", error);
+
+    alert(
+        "Code: " + error.code +
+        "\n\nMessage: " + error.message
+    );
+});
     
     // Save liked posts tracking to localStorage (device-specific)
     saveLikes();
