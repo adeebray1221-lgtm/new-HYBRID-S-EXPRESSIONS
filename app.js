@@ -583,18 +583,23 @@ function renderPostDetail(id) {
 
     const viewWriter = $('detail-view-writer-btn');
 
-    if (viewWriter) {
-        viewWriter.onclick = () => {
-            AppState.searchQuery = post.studentName || '';
+if (viewWriter) {
+    // Display the complete name of the current writer.
+    const writerName = post.studentName || 'this writer';
 
-            if ($('search-input')) {
-                $('search-input').value =
-                    AppState.searchQuery;
-            }
+    viewWriter.textContent = `View all works by ${writerName}`;
 
-            window.location.hash = '#/home';
-        };
-    }
+    // Show all writings by the selected writer.
+    viewWriter.onclick = () => {
+        AppState.searchQuery = writerName;
+
+        if ($('search-input')) {
+            $('search-input').value = writerName;
+        }
+
+        window.location.hash = '#/home';
+    };
+}
 
     const likeButton = $('detail-like-btn');
 
