@@ -1,28 +1,49 @@
 /**
  * Hybrid's Expressions - Main Application JS
- * Manages State, Routing, UI Views, and Admin Capabilities.
- * Now with Firestore integration for persistent online data storage.
+ * Uses Firebase Authentication for admin login
+ * and Firestore for persistent online data storage.
  */
 
-// Import Firebase functions dynamically
-let initializeFirebase, fetchPostsFromFirestore, addPostToFirestore, 
-    updatePostInFirestore, deletePostFromFirestore, updatePostLikes, isFirestoreReady;
+let firebaseModulePromise = null;
+let authStateUnsubscribe = null;
 
-// Dynamically import Firebase functions
-(async () => {
-    try {
-        const firebaseModule = await import('./firebase.js');
-        initializeFirebase = firebaseModule.initializeFirebase;
-        fetchPostsFromFirestore = firebaseModule.fetchPostsFromFirestore;
-        addPostToFirestore = firebaseModule.addPostToFirestore;
-        updatePostInFirestore = firebaseModule.updatePostInFirestore;
-        deletePostFromFirestore = firebaseModule.deletePostFromFirestore;
-        updatePostLikes = firebaseModule.updatePostLikes;
-        isFirestoreReady = firebaseModule.isFirestoreReady;
-    } catch (e) {
-        console.error("Failed to import Firebase modules:", e);
+let initializeFirebase;
+let fetchPostsFromFirestore;
+let addPostToFirestore;
+let updatePostInFirestore;
+let deletePostFromFirestore;
+let updatePostLikes;
+let isFirestoreReady;
+let signInAdmin;
+let signOutAdmin;
+let onFirebaseAuthStateChanged;
+
+function loadFirebaseFunctions() {
+    if (!firebaseModulePromise) {
+        firebaseModulePromise = import('./firebase.js')
+            .then((m) => {
+                initializeFirebase = m.initializeFirebase;
+                fetchPostsFromFirestore = m.fetchPostsFromFirestore;
+                addPostToFirestore = m.addPostToFirestore;
+                updatePostInFirestore = m.updatePostInFirestore;
+                deletePostFromFirestore = m.deletePostFromFirestore;
+                updatePostLikes = m.updatePostLikes;
+                isFirestoreReady = m.isFirestoreReady;
+
+                signInAdmin = m.signInAdmin;
+                signOutAdmin = m.signOutAdmin;
+                onFirebaseAuthStateChanged = m.onFirebaseAuthStateChanged;
+
+                return m;
+            })
+            .catch((error) => {
+                firebaseModulePromise = null;
+                throw error;
+            });
     }
-})();
+
+    return firebaseModulePromise;
+}
 
 // Global Application State
 const AppState = {
@@ -33,581 +54,947 @@ const AppState = {
     activeFilter: 'all',
     activeLanguageFilter: 'all',
     searchQuery: '',
-    uploadedImageBase64: null,
+    uploadedImageBase64: null
 };
 
-// Default Initial Database (Empty for school)
 const DEFAULT_POSTS = [];
 
-/* 
-   =========================================
-   Database & Storage Helpers (Firestore)
-   =========================================
-*/
+function $(id) {
+    return document.getElementById(id);
+}
 
-/**
- * Initialize database by fetching posts from Firestore
- * This replaces the old localStorage-based initDatabase function
- */
+// Safely escape text inserted into HTML.
+function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[character]);
+}
+
+// Get a safe image URL or a default avatar.
+function getStudentPhotoURL(photo, studentName) {
+    const fallback =
+        `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(studentName || 'writer')}`;
+
+    if (typeof photo !== 'string' || !photo.trim()) {
+        return fallback;
+    }
+
+    const value = photo.trim();
+
+    if (
+        /^https?:\/\//i.test(value) ||
+        /^data:image\/(png|jpeg|jpg|gif|webp);base64,/i.test(value)
+    ) {
+        return value;
+    }
+
+    return fallback;
+}
+
+/* =========================================
+   DATABASE INITIALIZATION
+   ========================================= */
+
 async function initDatabase() {
     try {
-        // Initialize Firebase first
-        const fbReady = await initializeFirebase();
-        if (!fbReady) {
-            console.error("Firebase initialization failed. Using empty database.");
-            AppState.posts = [...DEFAULT_POSTS];
-            return;
+        await loadFirebaseFunctions();
+
+        const ready = await initializeFirebase();
+
+        if (!ready) {
+            throw new Error(
+                'Firebase initialization failed. Check firebase.js configuration.'
+            );
         }
 
-        // Fetch posts from Firestore
         const posts = await fetchPostsFromFirestore();
-        AppState.posts = posts;
-        
-        console.log(`✓ Loaded ${AppState.posts.length} posts from Firestore`);
+        AppState.posts = Array.isArray(posts) ? posts : [];
+
+        console.log(
+            `Loaded ${AppState.posts.length} posts from Firestore.`
+        );
+
+        // Track Firebase Authentication state.
+        if (typeof onFirebaseAuthStateChanged === 'function') {
+            if (typeof authStateUnsubscribe === 'function') {
+                authStateUnsubscribe();
+            }
+
+            authStateUnsubscribe =
+                await onFirebaseAuthStateChanged((user) => {
+                    AppState.isAdminLoggedIn = Boolean(user);
+
+                    if (AppState.currentView === 'admin') {
+                        renderAdminPanel();
+                    }
+                });
+        }
     } catch (error) {
-        console.error("✗ Error initializing database:", error);
+        console.error(
+            'Error initializing Firebase/database:',
+            error
+        );
+
         AppState.posts = [...DEFAULT_POSTS];
     }
 
-    // Load liked posts tracking from localStorage (device-specific)
-    const savedLikes = localStorage.getItem('liked_posts');
-    if (savedLikes) {
-        try {
-            AppState.likedPosts = JSON.parse(savedLikes);
-        } catch (e) {
+    // Likes are saved on this device.
+    try {
+        const saved = localStorage.getItem('liked_posts');
+
+        AppState.likedPosts = saved
+            ? JSON.parse(saved)
+            : [];
+
+        if (!Array.isArray(AppState.likedPosts)) {
             AppState.likedPosts = [];
         }
-    }
-
-    // Load admin passcode settings from localStorage
-    const currentPass = localStorage.getItem('admin_passcode');
-    if (!currentPass || currentPass === 'admin123') {
-        localStorage.setItem('admin_passcode', 'arif@123.admin'); // Default password
-    }
-
-    // Check if session login is retained
-    const sessionAuth = sessionStorage.getItem('admin_authenticated');
-    if (sessionAuth === 'true') {
-        AppState.isAdminLoggedIn = true;
+    } catch (error) {
+        console.warn('Could not load saved likes:', error);
+        AppState.likedPosts = [];
     }
 }
 
-/**
- * Save liked posts list to localStorage (device-specific, not synced to Firestore)
- */
 function saveLikes() {
-    localStorage.setItem('liked_posts', JSON.stringify(AppState.likedPosts));
-}
-
-
-/* 
-   =========================================
-   Routing Logic
-   =========================================
-*/
-
-// Set active navigation menu link styling
-function updateNavStyles(hash) {
-    // Remove active class from all links
-    document.querySelectorAll('.nav-menu a, .admin-btn').forEach(link => {
-        link.classList.remove('active');
-    });
-
-    // Match appropriate link
-    if (hash === '#/home' || hash === '' || hash === '#/') {
-        document.getElementById('nav-home').classList.add('active');
-    } else if (hash === '#/poems') {
-        document.getElementById('nav-poems').classList.add('active');
-    } else if (hash === '#/stories') {
-        document.getElementById('nav-stories').classList.add('active');
-    } else if (hash === '#/writers') {
-        document.getElementById('nav-writers').classList.add('active');
-    } else if (hash.startsWith('#/admin')) {
-        document.getElementById('nav-admin').classList.add('active');
+    try {
+        localStorage.setItem(
+            'liked_posts',
+            JSON.stringify(AppState.likedPosts)
+        );
+    } catch (error) {
+        console.warn(
+            'Could not save liked posts locally:',
+            error
+        );
     }
 }
 
-// Router main function - listens to URL hash changes
+/* =========================================
+   ROUTING
+   ========================================= */
+
+function updateNavStyles(hash) {
+    document
+        .querySelectorAll('.nav-menu a, .admin-btn')
+        .forEach((link) => link.classList.remove('active'));
+
+    let id = null;
+
+    if (hash === '#/home' || hash === '' || hash === '#/') {
+        id = 'nav-home';
+    } else if (hash === '#/poems') {
+        id = 'nav-poems';
+    } else if (hash === '#/stories') {
+        id = 'nav-stories';
+    } else if (hash === '#/writers') {
+        id = 'nav-writers';
+    } else if (hash.startsWith('#/admin')) {
+        id = 'nav-admin';
+    }
+
+    if (id) {
+        $(id)?.classList.add('active');
+    }
+}
+
 function router() {
     const hash = window.location.hash || '#/home';
+
     updateNavStyles(hash);
 
-    // Hide mobile menu on route change
-    document.getElementById('nav-menu-toggle-list')?.classList.remove('show');
+    $('nav-menu-toggle-list')?.classList.remove('show');
 
-    // Route transitions
     if (hash === '#/home' || hash === '#/') {
         AppState.currentView = 'home';
         AppState.activeFilter = 'all';
+
         showView('view-home');
         resetFiltersUI('all');
         renderFeedGrid();
+
     } else if (hash === '#/poems') {
         AppState.currentView = 'home';
         AppState.activeFilter = 'poem';
+
         showView('view-home');
         resetFiltersUI('poem');
         renderFeedGrid();
+
     } else if (hash === '#/stories') {
         AppState.currentView = 'home';
         AppState.activeFilter = 'story';
+
         showView('view-home');
         resetFiltersUI('story');
         renderFeedGrid();
+
     } else if (hash === '#/writers') {
         AppState.currentView = 'writers';
+
         showView('view-writers');
         renderWritersDirectory();
+
     } else if (hash.startsWith('#/post/')) {
         AppState.currentView = 'details';
-        const id = hash.replace('#/post/', '');
+
         showView('view-details');
-        renderPostDetail(id);
+        renderPostDetail(hash.replace('#/post/', ''));
+
     } else if (hash === '#/admin') {
         AppState.currentView = 'admin';
+
         showView('view-admin');
+        ensureAdminEmailField();
         renderAdminPanel();
+
     } else {
-        // Fallback to home
         window.location.hash = '#/home';
     }
 }
 
-// Utility: Toggle views visibility
 function showView(viewId) {
-    document.querySelectorAll('.app-view').forEach(view => {
-        view.classList.add('hidden');
-    });
-    const activeView = document.getElementById(viewId);
-    if (activeView) {
-        activeView.classList.remove('hidden');
-        // Scroll to top of window on route change
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+    document
+        .querySelectorAll('.app-view')
+        .forEach((view) => view.classList.add('hidden'));
+
+    const view = $(viewId);
+
+    if (view) {
+        view.classList.remove('hidden');
+        window.scrollTo({
+            top: 0,
+            behavior: 'smooth'
+        });
     }
 }
 
-// Utility: Synchronize filter tabs UI based on router states
-function resetFiltersUI(activeFilter) {
-    AppState.activeFilter = activeFilter;
-    document.querySelectorAll('.filter-tab').forEach(tab => {
-        if (tab.dataset.filter === activeFilter) {
-            tab.classList.add('active');
-        } else {
-            tab.classList.remove('active');
-        }
-    });
+function resetFiltersUI(filter) {
+    AppState.activeFilter = filter;
+
+    document
+        .querySelectorAll('.filter-tab')
+        .forEach((tab) => {
+            tab.classList.toggle(
+                'active',
+                tab.dataset.filter === filter
+            );
+        });
+
     updateFeedTitle();
 }
 
-function resetLanguageUI(activeLanguage) {
-    AppState.activeLanguageFilter = activeLanguage;
-    document.querySelectorAll('.language-filter-btn').forEach(btn => {
-        if (btn.dataset.lang === activeLanguage) {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
-    });
+function resetLanguageUI(language) {
+    AppState.activeLanguageFilter = language;
+
+    document
+        .querySelectorAll('.language-filter-btn')
+        .forEach((button) => {
+            button.classList.toggle(
+                'active',
+                button.dataset.lang === language
+            );
+        });
+
     updateFeedTitle();
 }
 
 function updateFeedTitle() {
-    const titleElement = document.getElementById('feed-title');
-    let title = '';
+    const element = $('feed-title');
 
-    if (AppState.activeFilter === 'all') {
-        title = 'Latest Poems & Stories';
-    } else if (AppState.activeFilter === 'poem') {
-        title = 'Beautiful Poems';
-    } else if (AppState.activeFilter === 'story') {
-        title = 'Creative Stories';
-    } else if (AppState.activeFilter === 'alumni') {
-        title = 'Alumni Submissions';
-    }
+    if (!element) return;
+
+    let title =
+        AppState.activeFilter === 'all'
+            ? 'Latest Poems & Stories'
+            : AppState.activeFilter === 'poem'
+                ? 'Beautiful Poems'
+                : AppState.activeFilter === 'story'
+                    ? 'Creative Stories'
+                    : AppState.activeFilter === 'alumni'
+                        ? 'Alumni Submissions'
+                        : '';
 
     if (AppState.activeLanguageFilter === 'english') {
-        title = title.replace('Latest', 'Latest English').replace('Beautiful', 'English').replace('Creative', 'English');
-    } else if (AppState.activeLanguageFilter === 'hindi') {
-        title = title.replace('Latest', 'Latest Hindi').replace('Beautiful', 'Hindi').replace('Creative', 'Hindi');
+        title = title
+            .replace('Latest', 'Latest English')
+            .replace('Beautiful', 'English')
+            .replace('Creative', 'English');
     }
 
-    titleElement.textContent = title;
+    if (AppState.activeLanguageFilter === 'hindi') {
+        title = title
+            .replace('Latest', 'Latest Hindi')
+            .replace('Beautiful', 'Hindi')
+            .replace('Creative', 'Hindi');
+    }
+
+    element.textContent = title;
 }
 
-/* 
-   =========================================
-   UI Rendering Components
-   =========================================
-*/
+/* =========================================
+   PUBLIC FEED
+   ========================================= */
 
-// Render the Home Feed Grid containing poems/stories
 function renderFeedGrid() {
-    const grid = document.getElementById('posts-grid');
-    const noResults = document.getElementById('no-results');
-    
-    // Clear current grid
-    grid.innerHTML = '';
-    
-    // Sort posts by date descending
-    const sortedPosts = [...AppState.posts].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const grid = $('posts-grid');
+    const noResults = $('no-results');
 
-    // Filter posts
-    const filteredPosts = sortedPosts.filter(post => {
-        const postLanguage = post.language ? post.language.toLowerCase() : 'english';
-        const matchesCategory = AppState.activeFilter === 'all'
-            || (AppState.activeFilter === 'alumni' && post.studentStatus === 'alumni')
-            || (AppState.activeFilter !== 'alumni' && post.category === AppState.activeFilter);
-        const matchesLanguage = AppState.activeLanguageFilter === 'all' || postLanguage === AppState.activeLanguageFilter;
-        const matchesSearch = AppState.searchQuery === '' || 
-            post.studentName.toLowerCase().includes(AppState.searchQuery.toLowerCase()) ||
-            post.title.toLowerCase().includes(AppState.searchQuery.toLowerCase());
-        
-        return matchesCategory && matchesLanguage && matchesSearch;
+    if (!grid || !noResults) return;
+
+    grid.innerHTML = '';
+
+    const sorted = [...AppState.posts].sort(
+        (a, b) => new Date(b.date || 0) - new Date(a.date || 0)
+    );
+
+    const filtered = sorted.filter((post) => {
+        const language = String(
+            post.language || 'english'
+        ).toLowerCase();
+
+        const name = String(post.studentName || '');
+        const title = String(post.title || '');
+
+        const categoryMatch =
+            AppState.activeFilter === 'all' ||
+            (
+                AppState.activeFilter === 'alumni' &&
+                post.studentStatus === 'alumni'
+            ) ||
+            (
+                AppState.activeFilter !== 'alumni' &&
+                post.category === AppState.activeFilter
+            );
+
+        const languageMatch =
+            AppState.activeLanguageFilter === 'all' ||
+            language === AppState.activeLanguageFilter;
+
+        const searchMatch =
+            !AppState.searchQuery ||
+            name.toLowerCase().includes(
+                AppState.searchQuery.toLowerCase()
+            ) ||
+            title.toLowerCase().includes(
+                AppState.searchQuery.toLowerCase()
+            );
+
+        return categoryMatch && languageMatch && searchMatch;
     });
 
-    // Handle Empty States
-    if (filteredPosts.length === 0) {
+    if (!filtered.length) {
         grid.classList.add('hidden');
         noResults.classList.remove('hidden');
-        document.getElementById('search-query-display').textContent = AppState.searchQuery || AppState.activeFilter;
+
+        if ($('search-query-display')) {
+            $('search-query-display').textContent =
+                AppState.searchQuery || AppState.activeFilter;
+        }
+
         return;
     }
 
     grid.classList.remove('hidden');
     noResults.classList.add('hidden');
 
-    // Generate HTML for each post
-    filteredPosts.forEach(post => {
-        const isLiked = AppState.likedPosts.includes(post.id);
-        const cardHTML = `
-            <article class="writing-card" data-id="${post.id}">
-                <!-- Card content -->
+    filtered.forEach((post) => {
+        const id = escapeHTML(post.id);
+        const title = escapeHTML(post.title || 'Untitled');
+        const category = escapeHTML(post.category || 'writing');
+        const name = escapeHTML(
+            post.studentName || 'Unknown writer'
+        );
+
+        const photo = escapeHTML(
+            getStudentPhotoURL(
+                post.studentPhoto,
+                post.studentName
+            )
+        );
+
+        const likes = Math.max(
+            0,
+            Number(post.likes) || 0
+        );
+
+        const liked = AppState.likedPosts.includes(post.id);
+
+        grid.insertAdjacentHTML(
+            'beforeend',
+            `
+            <article class="writing-card" data-id="${id}">
                 <div class="card-body">
-                    <span class="card-badge ${post.category}">${post.category}</span>
-                    <h4 class="card-title">${post.title}</h4>
-                    
-                    <!-- Author bio container -->
-                    <div class="card-author" data-writer="${post.studentName}">
-                        <img src="${post.studentPhoto || 'https://api.dicebear.com/7.x/adventurer/svg?seed=' + post.studentName}" alt="${post.studentName}" class="author-photo">
+                    <span class="card-badge ${category}">
+                        ${category}
+                    </span>
+
+                    <h4 class="card-title">${title}</h4>
+
+                    <div class="card-author" data-writer="${name}">
+                        <img
+                            src="${photo}"
+                            alt="${name}"
+                            class="author-photo"
+                        >
+
                         <div class="author-details">
                             <span class="author-label">Written By</span>
-                            <span class="author-name">${post.studentName}</span>
+                            <span class="author-name">${name}</span>
                         </div>
                     </div>
-                    
-                    <!-- Meta footer details -->
+
                     <div class="card-footer">
-                        <span class="card-date"><i class="fa-regular fa-clock"></i> ${formatDateString(post.date)}</span>
-                        <div class="card-likes ${isLiked ? 'liked' : ''}" data-id="${post.id}">
-                            <i class="fa-${isLiked ? 'solid' : 'regular'} fa-heart"></i>
-                            <span class="likes-count">${post.likes}</span>
+                        <span class="card-date">
+                            <i class="fa-regular fa-clock"></i>
+                            ${escapeHTML(formatDateString(post.date))}
+                        </span>
+
+                        <div
+                            class="card-likes ${liked ? 'liked' : ''}"
+                            data-id="${id}"
+                        >
+                            <i class="fa-${liked ? 'solid' : 'regular'} fa-heart"></i>
+                            <span class="likes-count">${likes}</span>
                         </div>
                     </div>
                 </div>
             </article>
-        `;
-        grid.insertAdjacentHTML('beforeend', cardHTML);
+            `
+        );
     });
 
-    // Add click listeners to cards
-    document.querySelectorAll('.writing-card').forEach(card => {
-        card.addEventListener('click', (e) => {
-            // Check if user clicked the like icon to prevent routing
-            if (e.target.closest('.card-likes')) {
-                const likeContainer = e.target.closest('.card-likes');
-                const postId = likeContainer.dataset.id;
-                toggleLikePost(postId, likeContainer);
-                e.stopPropagation();
+    grid.querySelectorAll('.writing-card').forEach((card) => {
+        card.addEventListener('click', (event) => {
+            const like = event.target.closest('.card-likes');
+
+            if (like) {
+                event.stopPropagation();
+
+                toggleLikePost(like.dataset.id, like);
                 return;
             }
-            // Route to detail page
-            const id = card.dataset.id;
-            window.location.hash = `#/post/${id}`;
+
+            window.location.hash =
+                `#/post/${card.dataset.id}`;
         });
     });
 }
 
-// Helper: Return SVG icon tags for illustrations
 function getIllustrationIcon(illustration) {
-    switch(illustration) {
+    switch (illustration) {
         case 'feather':
             return '<i class="fa-solid fa-feather"></i>';
+
         case 'treasure':
             return '<i class="fa-solid fa-gem"></i>';
+
         case 'mother':
             return '<i class="fa-solid fa-heart"></i>';
+
         case 'sparrow':
             return '<i class="fa-solid fa-crow"></i>';
+
         case 'book':
             return '<i class="fa-solid fa-book"></i>';
+
         default:
             return '<i class="fa-solid fa-feather-pointed"></i>';
     }
 }
 
 function formatStudentMeta(post) {
-    const statusText = post.studentStatus === 'alumni' ? 'Alumni Student' : 'Current Student';
-    const gradeText = post.studentGrade ? ` · ${post.studentGrade}` : '';
-    return `${statusText}${gradeText}`;
+    return `${
+        post.studentStatus === 'alumni'
+            ? 'Alumni Student'
+            : 'Current Student'
+    }${
+        post.studentGrade
+            ? ` · ${post.studentGrade}`
+            : ''
+    }`;
 }
 
-// Render the details of a single story or poem
 function renderPostDetail(id) {
-    const post = AppState.posts.find(p => p.id === id);
+    const post = AppState.posts.find(
+        (item) => item.id === id
+    );
+
     if (!post) {
-        // Post not found, route home
-        window.location.hash = '#/home';
+        if (AppState.posts.length) {
+            window.location.hash = '#/home';
+        }
+
         return;
     }
 
-    // Set badges and metadata
-    const categoryBadge = document.getElementById('detail-category-badge');
-    categoryBadge.className = `badge ${post.category}`;
-    categoryBadge.textContent = post.category;
+    const badge = $('detail-category-badge');
 
-    document.getElementById('detail-title').textContent = post.title;
-    document.getElementById('detail-date').textContent = formatDateString(post.date);
-    document.getElementById('detail-read-time').textContent = calculateReadTime(post.content);
-    
-    // Format content and apply layout styling (Poems are centered & styled differently)
-    const contentBody = document.getElementById('detail-content');
-    contentBody.textContent = post.content; // Render newlines appropriately via pre-line style
-    if (post.category === 'poem') {
-        contentBody.classList.add('poem-styling');
-    } else {
-        contentBody.classList.remove('poem-styling');
+    if (badge) {
+        badge.className = `badge ${post.category || ''}`;
+        badge.textContent = post.category || '';
     }
 
-    // Sidebar Student Profile Details
-    const studentPhoto = document.getElementById('detail-student-photo');
-    studentPhoto.src = post.studentPhoto || `https://api.dicebear.com/7.x/adventurer/svg?seed=${post.studentName}`;
-    document.getElementById('detail-student-name').textContent = post.studentName;
-    document.getElementById('detail-student-grade').textContent = formatStudentMeta(post);
-
-    // Configure sidebar view all button
-    const viewAllBtn = document.getElementById('detail-view-writer-btn');
-    viewAllBtn.textContent = `All Writings by ${post.studentName.split(' ')[0]}`;
-    viewAllBtn.onclick = () => {
-        AppState.searchQuery = post.studentName;
-        document.getElementById('search-input').value = post.studentName;
-        window.location.hash = '#/home';
-    };
-
-    // Configure Detail Like Button
-    const likeBtn = document.getElementById('detail-like-btn');
-    const likesCountSpan = document.getElementById('detail-likes-count');
-    
-    likesCountSpan.textContent = post.likes;
-    
-    const isLiked = AppState.likedPosts.includes(post.id);
-    if (isLiked) {
-        likeBtn.classList.add('liked');
-        likeBtn.querySelector('i').className = "fa-solid fa-heart";
-    } else {
-        likeBtn.classList.remove('liked');
-        likeBtn.querySelector('i').className = "fa-regular fa-heart";
+    if ($('detail-title')) {
+        $('detail-title').textContent = post.title || '';
     }
 
-    // Clear previous event listeners by cloning button
-    const newLikeBtn = likeBtn.cloneNode(true);
-    likeBtn.parentNode.replaceChild(newLikeBtn, likeBtn);
+    if ($('detail-date')) {
+        $('detail-date').textContent =
+            formatDateString(post.date);
+    }
 
-    newLikeBtn.addEventListener('click', () => {
-        toggleLikePost(post.id, newLikeBtn, likesCountSpan);
-    });
+    if ($('detail-read-time')) {
+        $('detail-read-time').textContent =
+            calculateReadTime(post.content);
+    }
+
+    const content = $('detail-content');
+
+    if (content) {
+        content.textContent = post.content || '';
+
+        content.classList.toggle(
+            'poem-styling',
+            post.category === 'poem'
+        );
+    }
+
+    if ($('detail-student-photo')) {
+        $('detail-student-photo').src =
+            getStudentPhotoURL(
+                post.studentPhoto,
+                post.studentName
+            );
+    }
+
+    if ($('detail-student-name')) {
+        $('detail-student-name').textContent =
+            post.studentName || '';
+    }
+
+    if ($('detail-student-grade')) {
+        $('detail-student-grade').textContent =
+            formatStudentMeta(post);
+    }
+
+    const viewWriter = $('detail-view-writer-btn');
+
+    if (viewWriter) {
+        viewWriter.onclick = () => {
+            AppState.searchQuery = post.studentName || '';
+
+            if ($('search-input')) {
+                $('search-input').value =
+                    AppState.searchQuery;
+            }
+
+            window.location.hash = '#/home';
+        };
+    }
+
+    const likeButton = $('detail-like-btn');
+
+    if (likeButton) {
+        const liked = AppState.likedPosts.includes(post.id);
+
+        likeButton.classList.toggle('liked', liked);
+
+        const icon = likeButton.querySelector('i');
+
+        if (icon) {
+            icon.className =
+                `fa-${liked ? 'solid' : 'regular'} fa-heart`;
+        }
+
+        if ($('detail-likes-count')) {
+            $('detail-likes-count').textContent =
+                Math.max(0, Number(post.likes) || 0);
+        }
+
+        const clone = likeButton.cloneNode(true);
+
+        likeButton.parentNode.replaceChild(clone, likeButton);
+
+        clone.addEventListener('click', () => {
+            toggleLikePost(
+                post.id,
+                clone,
+                clone.querySelector('#detail-likes-count')
+            );
+        });
+    }
 }
 
-// Render Writers Directory List
 function renderWritersDirectory() {
-    const grid = document.getElementById('writers-grid');
+    const grid = $('writers-grid');
+
+    if (!grid) return;
+
     grid.innerHTML = '';
 
-    // Group posts by studentName to calculate statistics and retrieve photos
-    const writersMap = {};
-    AppState.posts.forEach(post => {
-        if (!writersMap[post.studentName]) {
-            writersMap[post.studentName] = {
-                name: post.studentName,
+    const writers = {};
+
+    AppState.posts.forEach((post) => {
+        const name = String(
+            post.studentName || 'Unknown writer'
+        );
+
+        if (!writers[name]) {
+            writers[name] = {
+                name,
                 grade: formatStudentMeta(post),
-                photo: post.studentPhoto || `https://api.dicebear.com/7.x/adventurer/svg?seed=${post.studentName}`,
-                writingCount: 0
+                photo: getStudentPhotoURL(
+                    post.studentPhoto,
+                    name
+                ),
+                count: 0
             };
         }
-        writersMap[post.studentName].writingCount++;
+
+        writers[name].count++;
     });
 
-    const writersList = Object.values(writersMap);
+    Object.values(writers).forEach((writer) => {
+        const name = escapeHTML(writer.name);
 
-    writersList.forEach(writer => {
-        const cardHTML = `
-            <div class="writer-card" data-name="${writer.name}">
-                <img src="${writer.photo}" alt="${writer.name}" class="writer-photo">
-                <h3 class="writer-name">${writer.name}</h3>
-                <p class="writer-grade">${writer.grade}</p>
-                <span class="writer-stats-tag">${writer.writingCount} ${writer.writingCount === 1 ? 'Writing' : 'Writings'}</span>
+        grid.insertAdjacentHTML(
+            'beforeend',
+            `
+            <div class="writer-card" data-name="${name}">
+                <img
+                    src="${escapeHTML(writer.photo)}"
+                    alt="${name}"
+                    class="writer-photo"
+                >
+
+                <h3 class="writer-name">${name}</h3>
+
+                <p class="writer-grade">
+                    ${escapeHTML(writer.grade)}
+                </p>
+
+                <span class="writer-stats-tag">
+                    ${writer.count}
+                    ${writer.count === 1 ? 'Writing' : 'Writings'}
+                </span>
             </div>
-        `;
-        grid.insertAdjacentHTML('beforeend', cardHTML);
+            `
+        );
     });
 
-    // Event listener: click author card to search their writings on home page
-    document.querySelectorAll('.writer-card').forEach(card => {
+    grid.querySelectorAll('.writer-card').forEach((card) => {
         card.addEventListener('click', () => {
-            const writerName = card.dataset.name;
-            AppState.searchQuery = writerName;
-            document.getElementById('search-input').value = writerName;
+            AppState.searchQuery = card.dataset.name || '';
+
+            if ($('search-input')) {
+                $('search-input').value = AppState.searchQuery;
+            }
+
             window.location.hash = '#/home';
         });
     });
 }
 
-/* 
-   =========================================
-   Likes System
-   =========================================
-*/
+/* =========================================
+   LIKES
+   ========================================= */
 
-// Toggle post like state and persist data
-function toggleLikePost(id, element, siblingCountSpan) {
-    const post = AppState.posts.find(p => p.id === id);
-    if (!post) return;
-
-    const likeIndex = AppState.likedPosts.indexOf(id);
-    const isLiking = likeIndex === -1;
-
-    if (isLiking) {
-        // Add like
-        AppState.likedPosts.push(id);
-        post.likes++;
-        
-        // CSS feedback updates
-        element.classList.add('liked');
-        const heartIcon = element.querySelector('i');
-        if (heartIcon) {
-            heartIcon.className = "fa-solid fa-heart";
-        }
-    } else {
-        // Remove like
-        AppState.likedPosts.splice(likeIndex, 1);
-        post.likes--;
-        
-        // CSS feedback updates
-        element.classList.remove('liked');
-        const heartIcon = element.querySelector('i');
-        if (heartIcon) {
-            heartIcon.className = "fa-regular fa-heart";
-        }
-    }
-
-    // Update count labels
-    if (siblingCountSpan) {
-        siblingCountSpan.textContent = post.likes;
-    } else {
-        const innerCount = element.querySelector('.likes-count');
-        if (innerCount) innerCount.textContent = post.likes;
-    }
-
-    // Persist likes count to Firestore
-    updatePostLikes(id, post.likes)
-       .catch((error) => {
-    console.error("Publish Error:", error);
-
-    alert(
-        "Code: " + error.code +
-        "\n\nMessage: " + error.message
+async function toggleLikePost(id, element, countElement) {
+    const post = AppState.posts.find(
+        (item) => item.id === id
     );
-});
-    
-    // Save liked posts tracking to localStorage (device-specific)
+
+    if (!post || !element) return;
+
+    const oldLikes = Math.max(
+        0,
+        Number(post.likes) || 0
+    );
+
+    const oldLiked = AppState.likedPosts.includes(id);
+
+    const newLikes = Math.max(
+        0,
+        oldLikes + (oldLiked ? -1 : 1)
+    );
+
+    if (oldLiked) {
+        AppState.likedPosts =
+            AppState.likedPosts.filter((item) => item !== id);
+    } else {
+        AppState.likedPosts.push(id);
+    }
+
+    post.likes = newLikes;
+
+    element.classList.toggle('liked', !oldLiked);
+
+    const icon = element.querySelector('i');
+
+    if (icon) {
+        icon.className =
+            `fa-${oldLiked ? 'regular' : 'solid'} fa-heart`;
+    }
+
+    const label =
+        countElement || element.querySelector('.likes-count');
+
+    if (label) {
+        label.textContent = newLikes;
+    }
+
     saveLikes();
+
+    try {
+        await loadFirebaseFunctions();
+        await updatePostLikes(id, newLikes);
+    } catch (error) {
+        console.error(
+            'Error updating likes in Firestore:',
+            error
+        );
+
+        post.likes = oldLikes;
+
+        if (oldLiked && !AppState.likedPosts.includes(id)) {
+            AppState.likedPosts.push(id);
+        }
+
+        if (!oldLiked) {
+            AppState.likedPosts =
+                AppState.likedPosts.filter((item) => item !== id);
+        }
+
+        saveLikes();
+
+        if (AppState.currentView === 'details') {
+            renderPostDetail(id);
+        } else {
+            renderFeedGrid();
+        }
+    }
 }
 
-/* 
-   =========================================
-   Admin Panel Dashboard Logic
-   =========================================
-*/
+/* =========================================
+   ADMIN LOGIN
+   ========================================= */
 
-// Toggle rendering logic between Authentication Form & Dashboard views
+function ensureAdminEmailField() {
+    const form = $('admin-login-form');
+    const password = $('admin-passcode');
+
+    if (!form || !password || $('admin-email')) {
+        return;
+    }
+
+    const group = password.closest('.form-group');
+
+    const oldLabel =
+        form.querySelector('label[for="admin-passcode"]');
+
+    if (oldLabel) {
+        oldLabel.textContent = 'Firebase Password';
+    }
+
+    const emailGroup = document.createElement('div');
+
+    emailGroup.className =
+        group?.className || 'form-group';
+
+    const label = document.createElement('label');
+
+    label.htmlFor = 'admin-email';
+    label.textContent = 'Admin Email';
+
+    if (oldLabel?.className) {
+        label.className = oldLabel.className;
+    }
+
+    const input = document.createElement('input');
+
+    input.type = 'email';
+    input.id = 'admin-email';
+    input.name = 'admin-email';
+    input.placeholder = 'Enter your admin email';
+    input.autocomplete = 'username';
+    input.required = true;
+    input.className = password.className;
+
+    emailGroup.append(label, input);
+
+    if (group?.parentNode) {
+        group.parentNode.insertBefore(emailGroup, group);
+    } else {
+        password.parentNode.insertBefore(
+            emailGroup,
+            password
+        );
+    }
+
+    password.autocomplete = 'current-password';
+    password.placeholder = 'Enter your Firebase password';
+}
+
+function updateLoginError(message) {
+    const error = $('login-error');
+
+    if (!error) return;
+
+    error.textContent = message || '';
+    error.classList.toggle('hidden', !message);
+}
+
 function renderAdminPanel() {
-    const loginCard = document.getElementById('admin-login-card');
-    const dashboardLayout = document.getElementById('admin-dashboard');
+    const loginCard = $('admin-login-card');
+    const dashboard = $('admin-dashboard');
+
+    if (!loginCard || !dashboard) return;
 
     if (AppState.isAdminLoggedIn) {
         loginCard.classList.add('hidden');
-        dashboardLayout.classList.remove('hidden');
-        
-        // Populate inputs and load lists
-        document.getElementById('post-date').value = new Date().toISOString().split('T')[0];
-        document.getElementById('admin-posts-count').textContent = AppState.posts.length;
+        dashboard.classList.remove('hidden');
+
+        const date = $('post-date');
+
+        if (date && !date.value) {
+            date.value =
+                new Date().toISOString().split('T')[0];
+        }
+
+        if ($('admin-posts-count')) {
+            $('admin-posts-count').textContent =
+                AppState.posts.length;
+        }
+
         renderAdminPostsList();
     } else {
         loginCard.classList.remove('hidden');
-        dashboardLayout.classList.add('hidden');
+        dashboard.classList.add('hidden');
+
+        ensureAdminEmailField();
     }
 }
 
-// Render dynamic management lists inside the admin dashboard
 function renderAdminPostsList() {
-    const list = document.getElementById('admin-posts-list');
+    const list = $('admin-posts-list');
+
+    if (!list) return;
+
     list.innerHTML = '';
 
-    // Sort descending by date
-    const sortedPosts = [...AppState.posts].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const sorted = [...AppState.posts].sort(
+        (a, b) => new Date(b.date || 0) - new Date(a.date || 0)
+    );
 
-    sortedPosts.forEach(post => {
+    sorted.forEach((post) => {
         const li = document.createElement('li');
+
         li.innerHTML = `
             <div class="admin-post-title-meta">
-                <span class="admin-post-item-title" data-id="${post.id}">${post.title}</span>
-                <span class="admin-post-item-author">${post.studentName} &bull; ${post.category.toUpperCase()}</span>
+                <span
+                    class="admin-post-item-title"
+                    data-id="${escapeHTML(post.id)}"
+                >
+                    ${escapeHTML(post.title || 'Untitled')}
+                </span>
+
+                <span class="admin-post-item-author">
+                    ${escapeHTML(post.studentName || 'Unknown writer')}
+                    &bull;
+                    ${escapeHTML(
+                        String(post.category || 'writing').toUpperCase()
+                    )}
+                </span>
             </div>
-            <button class="btn-delete-post" data-id="${post.id}" title="Delete Post">
+
+            <button
+                class="btn-delete-post"
+                data-id="${escapeHTML(post.id)}"
+                title="Delete Post"
+                type="button"
+            >
                 <i class="fa-solid fa-trash-can"></i>
             </button>
         `;
+
         list.appendChild(li);
     });
 
-    // Attach click triggers on lists
-    list.querySelectorAll('.admin-post-item-title').forEach(item => {
-        item.addEventListener('click', () => {
-            window.location.hash = `#/post/${item.dataset.id}`;
+    list.querySelectorAll('.admin-post-item-title')
+        .forEach((item) => {
+            item.addEventListener('click', () => {
+                window.location.hash =
+                    `#/post/${item.dataset.id}`;
+            });
         });
-    });
 
-    list.querySelectorAll('.btn-delete-post').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const id = btn.dataset.id;
-            const post = AppState.posts.find(p => p.id === id);
-            if (confirm(`Are you sure you want to delete "${post.title}" by ${post.studentName}?`)) {
-                deletePost(id);
-            }
+    list.querySelectorAll('.btn-delete-post')
+        .forEach((button) => {
+            button.addEventListener('click', () => {
+                const post = AppState.posts.find(
+                    (item) => item.id === button.dataset.id
+                );
+
+                if (
+                    post &&
+                    confirm(
+                        `Are you sure you want to delete "${post.title}" by ${post.studentName}?`
+                    )
+                ) {
+                    deletePost(post.id);
+                }
+            });
         });
-    });
 }
 
-// Create & Publish a new Student submission
-function publishNewPost(event) {
+/* =========================================
+   PUBLISH POSTS
+   ========================================= */
+
+async function publishNewPost(event) {
     event.preventDefault();
 
-    const title = document.getElementById('post-title').value;
-    const category = document.getElementById('post-category').value;
-    const postLanguage = document.getElementById('post-language')?.value || 'english';
-    const studentName = document.getElementById('student-name').value;
-    const studentStatus = document.getElementById('student-status').value;
-    const studentGrade = document.getElementById('student-grade').value;
-    const content = document.getElementById('post-content').value;
-    const date = document.getElementById('post-date').value;
-    const initialLikes = parseInt(document.getElementById('post-likes').value) || 0;
+    if (!AppState.isAdminLoggedIn) {
+        alert(
+            'Please sign in with your Firebase admin account first.'
+        );
+        return;
+    }
 
-    // Student Photo source selection resolution
+    const title = $('post-title')?.value.trim() || '';
+    const category = $('post-category')?.value || 'poem';
+    const language = $('post-language')?.value || 'english';
+    const studentName = $('student-name')?.value.trim() || '';
+    const studentStatus = $('student-status')?.value || 'current';
+    const studentGrade = $('student-grade')?.value || '';
+    const content = $('post-content')?.value || '';
+
+    const date =
+        $('post-date')?.value ||
+        new Date().toISOString().split('T')[0];
+
+    const likes = Math.max(
+        0,
+        parseInt($('post-likes')?.value, 10) || 0
+    );
+
+    const source =
+        document.querySelector('.image-tab-btn.active')
+            ?.dataset.source || 'avatar';
+
     let studentPhoto = '';
-    const activeTabSource = document.querySelector('.image-tab-btn.active').dataset.source;
 
-    if (activeTabSource === 'avatar') {
-        const selectedAvatar = document.querySelector('input[name="student-avatar"]:checked').value;
-        const seedMap = {
+    if (source === 'avatar') {
+        const choice =
+            document.querySelector(
+                'input[name="student-avatar"]:checked'
+            )?.value || 'avatar1';
+
+        const seeds = {
             avatar1: 'Aarav',
             avatar2: 'Ananya',
             avatar3: 'Riya',
@@ -615,373 +1002,594 @@ function publishNewPost(event) {
             avatar5: 'Kabir',
             avatar6: 'Myra'
         };
-        studentPhoto = `https://api.dicebear.com/7.x/adventurer/svg?seed=${seedMap[selectedAvatar]}`;
-    } else if (activeTabSource === 'upload') {
-        studentPhoto = AppState.uploadedImageBase64 || `https://api.dicebear.com/7.x/adventurer/svg?seed=${studentName}`;
-    } else if (activeTabSource === 'url') {
-        studentPhoto = document.getElementById('student-photo-url').value || `https://api.dicebear.com/7.x/adventurer/svg?seed=${studentName}`;
+
+        studentPhoto =
+            `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(seeds[choice] || 'Aarav')}`;
+
+    } else if (source === 'upload') {
+        studentPhoto =
+            AppState.uploadedImageBase64 ||
+            getStudentPhotoURL('', studentName);
+
+    } else if (source === 'url') {
+        studentPhoto = getStudentPhotoURL(
+            $('student-photo-url')?.value || '',
+            studentName
+        );
     }
 
-    // Default illustration based on category to avoid one shared generic style for all posts
-    const illustration = category === 'story' ? 'treasure' : 'feather';
+    if (!title || !studentName || !content.trim()) {
+        alert(
+            'Please fill in the title, student name, and content.'
+        );
+        return;
+    }
 
     const newPost = {
         title,
         category,
-        language: postLanguage,
+        language,
         studentName,
         studentStatus,
         studentGrade,
         studentPhoto,
-        illustration,
+        illustration: category === 'story' ? 'treasure' : 'feather',
         date,
-        likes: initialLikes,
+        likes,
         content
     };
 
-    // Add to Firestore
-    addPostToFirestore(newPost)
-        .then((docId) => {
-            // Add the post to AppState with the Firestore-generated ID
-            const postWithId = {
-                ...newPost,
-                id: docId
-            };
-            AppState.posts.unshift(postWithId);
+    try {
+        await loadFirebaseFunctions();
 
-            // Reset UI and form states
-            document.getElementById('publish-form').reset();
-            AppState.uploadedImageBase64 = null;
-            document.getElementById('file-upload-name').textContent = "No file selected";
-            
-            // Switch to avatar selection defaults
-            switchImageTab('avatar');
-            
-            // Refresh Dashboards lists
-            renderAdminPanel();
-            alert("Congratulations! Post published successfully.");
-        })
-        .catch((error) => {
-            console.error("Error publishing post:", error);
-            alert("Failed to publish post. Please try again.");
+        const id = await addPostToFirestore(newPost);
+
+        AppState.posts.unshift({
+            ...newPost,
+            id
         });
+
+        $('publish-form')?.reset();
+
+        AppState.uploadedImageBase64 = null;
+
+        if ($('file-upload-name')) {
+            $('file-upload-name').textContent =
+                'No file selected';
+        }
+
+        switchImageTab('avatar');
+
+        renderAdminPanel();
+        renderFeedGrid();
+
+        alert('Congratulations! Post published successfully.');
+
+    } catch (error) {
+        console.error('Error publishing post:', error);
+
+        alert(
+            `Failed to publish post.\n\n${error.code || 'Error'}: ${error.message || 'Please try again.'}`
+        );
+    }
 }
 
-// Delete a student post from Firestore
-function deletePost(id) {
-    // Remove from Firestore
-    deletePostFromFirestore(id)
-        .then(() => {
-            // Remove from AppState
-            AppState.posts = AppState.posts.filter(p => p.id !== id);
-            
-            // Clean liked indices if deleted
-            const likeIdx = AppState.likedPosts.indexOf(id);
-            if (likeIdx !== -1) {
-                AppState.likedPosts.splice(likeIdx, 1);
-                saveLikes();
-            }
+/* =========================================
+   DELETE POSTS
+   ========================================= */
 
-            renderAdminPanel();
-        })
-        .catch((error) => {
-            console.error("Error deleting post:", error);
-            alert("Failed to delete post. Please try again.");
-        });
+async function deletePost(id) {
+    if (!AppState.isAdminLoggedIn) {
+        alert(
+            'Please sign in with your Firebase admin account first.'
+        );
+        return;
+    }
+
+    try {
+        await loadFirebaseFunctions();
+
+        await deletePostFromFirestore(id);
+
+        AppState.posts = AppState.posts.filter(
+            (post) => post.id !== id
+        );
+
+        AppState.likedPosts =
+            AppState.likedPosts.filter(
+                (postId) => postId !== id
+            );
+
+        saveLikes();
+
+        renderAdminPanel();
+        renderFeedGrid();
+
+    } catch (error) {
+        console.error('Error deleting post:', error);
+
+        alert(
+            `Failed to delete post.\n\n${error.code || 'Error'}: ${error.message || 'Please try again.'}`
+        );
+    }
 }
 
-// Switch student photo selection method panels
+/* =========================================
+   IMAGE UPLOAD AND IMAGE TABS
+   ========================================= */
+
 function switchImageTab(source) {
-    document.querySelectorAll('.image-tab-btn').forEach(btn => {
-        if (btn.dataset.source === source) {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
-    });
+    document.querySelectorAll('.image-tab-btn')
+        .forEach((button) => {
+            button.classList.toggle(
+                'active',
+                button.dataset.source === source
+            );
+        });
 
-    document.querySelectorAll('.image-input-field').forEach(field => {
-        if (field.id === `source-${source}`) {
-            field.classList.remove('hidden');
-        } else {
-            field.classList.add('hidden');
-        }
-    });
+    document.querySelectorAll('.image-input-field')
+        .forEach((field) => {
+            field.classList.toggle(
+                'hidden',
+                field.id !== `source-${source}`
+            );
+        });
 }
 
-// Convert uploaded picture files into base64 storage URL formats
-function handleStudentPhotoUpload(e) {
-    const file = e.target.files[0];
-    const displayLabel = document.getElementById('file-upload-name');
-    
+function handleStudentPhotoUpload(event) {
+    const file = event.target.files?.[0];
+    const label = $('file-upload-name');
+
     if (!file) {
-        displayLabel.textContent = "No file selected";
+        if (label) label.textContent = 'No file selected';
+
         AppState.uploadedImageBase64 = null;
         return;
     }
 
-    displayLabel.textContent = file.name;
+    if (!file.type.startsWith('image/')) {
+        alert('Please select an image file.');
+        event.target.value = '';
+        return;
+    }
+
+    // Firestore documents have a size limit.
+    if (file.size > 500 * 1024) {
+        alert(
+            'This image is too large for the current Firestore upload method. ' +
+            'Choose an image under 500 KB; Firebase Storage can be added later.'
+        );
+
+        event.target.value = '';
+        AppState.uploadedImageBase64 = null;
+        return;
+    }
+
+    if (label) {
+        label.textContent = file.name;
+    }
 
     const reader = new FileReader();
-    reader.onload = function(event) {
-        AppState.uploadedImageBase64 = event.target.result;
+
+    reader.onload = (eventResult) => {
+        AppState.uploadedImageBase64 =
+            eventResult.target.result;
     };
+
+    reader.onerror = () => {
+        AppState.uploadedImageBase64 = null;
+
+        if (label) {
+            label.textContent = 'Could not read image';
+        }
+
+        alert('Could not read the selected image.');
+    };
+
     reader.readAsDataURL(file);
 }
 
-// Download local system writing data backup JSON files
+/* =========================================
+   DATABASE BACKUP AND RESTORE
+   ========================================= */
+
 function exportDatabase() {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(AppState.posts, null, 4));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", "hybrids_writers_backup_" + new Date().toISOString().split('T')[0] + ".json");
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
+    const data =
+        'data:application/json;charset=utf-8,' +
+        encodeURIComponent(
+            JSON.stringify(AppState.posts, null, 4)
+        );
+
+    const link = document.createElement('a');
+
+    link.href = data;
+
+    link.download =
+        `hybrids_writers_backup_${new Date().toISOString().split('T')[0]}.json`;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
 }
 
-// Upload JSON database restores
-function importDatabase(e) {
-    const file = e.target.files[0];
+async function importDatabase(event) {
+    const file = event.target.files?.[0];
+
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = function(event) {
-        try {
-            const importedData = JSON.parse(event.target.result);
-            if (Array.isArray(importedData)) {
-                // Perform quick verification of fields in first item
-                if (importedData.length > 0 && (!importedData[0].id || !importedData[0].title)) {
-                    throw new Error("Invalid structure formats inside import database entries.");
-                }
+    try {
+        const imported = JSON.parse(await file.text());
 
-                if (confirm(`Do you want to import ${importedData.length} records? This will merge them with existing entries.`)) {
-                    // Merge duplicates avoiding same IDs
-                    const existingIds = AppState.posts.map(p => p.id);
-                    const newPostsToAdd = [];
-                    
-                    importedData.forEach(item => {
-                        if (!existingIds.includes(item.id)) {
-                            newPostsToAdd.push(item);
-                        } else {
-                            // For existing IDs, update them in Firestore
-                            const { id, ...updateData } = item;
-                            updatePostInFirestore(id, updateData).catch(err => {
-                                console.error(`Error updating post ${id}:`, err);
-                            });
-                        }
-                    });
-
-                    // Add new posts to Firestore
-                    if (newPostsToAdd.length > 0) {
-                        newPostsToAdd.forEach(post => {
-                            const { id, ...postData } = post;
-                            addPostToFirestore(postData).then(docId => {
-                                AppState.posts.push({ ...postData, id: docId });
-                            }).catch(err => {
-                                console.error("Error adding post to Firestore:", err);
-                            });
-                        });
-                    }
-
-                    renderAdminPanel();
-                    alert("Import successful! Your database entries are being synced to Firestore.");
-                }
-            } else {
-                alert("Incorrect database formats! File must contain a JSON array of writings.");
-            }
-        } catch (error) {
-            alert("Failed to read import backup files: " + error.message);
+        if (!Array.isArray(imported)) {
+            throw new Error(
+                'File must contain a JSON array of writings.'
+            );
         }
-    };
-    reader.readAsText(file);
+
+        if (
+            imported.length &&
+            (!imported[0].id || !imported[0].title)
+        ) {
+            throw new Error(
+                'The imported entries do not have the expected structure.'
+            );
+        }
+
+        if (
+            !confirm(
+                `Import ${imported.length} records? Existing IDs will be updated and new entries will be added.`
+            )
+        ) {
+            return;
+        }
+
+        if (!AppState.isAdminLoggedIn) {
+            throw new Error(
+                'Sign in with the Firebase admin account first.'
+            );
+        }
+
+        await loadFirebaseFunctions();
+
+        const existingIds = new Set(
+            AppState.posts.map((post) => post.id)
+        );
+
+        for (const item of imported) {
+            const { id, ...data } = item;
+
+            if (id && existingIds.has(id)) {
+                await updatePostInFirestore(id, data);
+            } else {
+                const newId = await addPostToFirestore(data);
+                existingIds.add(newId);
+            }
+        }
+
+        AppState.posts = await fetchPostsFromFirestore();
+
+        renderAdminPanel();
+        renderFeedGrid();
+
+        alert('Import completed.');
+
+    } catch (error) {
+        console.error('Database import failed:', error);
+
+        alert(
+            `Import failed: ${error.message || 'Check the JSON file and try again.'}`
+        );
+
+    } finally {
+        event.target.value = '';
+    }
 }
 
-/* 
-   =========================================
-   Standard Initialization Event Wiring
-   =========================================
-*/
+/* =========================================
+   STARTUP AND EVENT LISTENERS
+   ========================================= */
 
-// Set footer dates dynamically
-document.getElementById('current-year').textContent = new Date().getFullYear();
+document.addEventListener('DOMContentLoaded', async () => {
+    if ($('current-year')) {
+        $('current-year').textContent =
+            new Date().getFullYear();
+    }
 
-// Initialize application lifecycle handlers
-window.addEventListener('DOMContentLoaded', async () => {
-    // Initialize database and Firestore
     await initDatabase();
-    
-    // Setup URL Router Listener
+
     window.addEventListener('hashchange', router);
-    
-    // Setup dynamic hash execution
+
+    window.addEventListener('beforeunload', () => {
+        if (typeof authStateUnsubscribe === 'function') {
+            authStateUnsubscribe();
+        }
+    });
+
     router();
 
-    // Bind Search Forms
-    const searchInput = document.getElementById('search-input');
-    const searchBtn = document.getElementById('search-btn');
+    const searchInput = $('search-input');
 
-    const triggerSearch = () => {
-        AppState.searchQuery = searchInput.value.trim();
-        // Force navigate home if not already
-        if (window.location.hash !== '#/home' && window.location.hash !== '#/' && window.location.hash !== '') {
+    const runSearch = () => {
+        if (!searchInput) return;
+
+        AppState.searchQuery =
+            searchInput.value.trim();
+
+        if (
+            !['#/home', '#/', ''].includes(
+                window.location.hash
+            )
+        ) {
             window.location.hash = '#/home';
         } else {
             renderFeedGrid();
         }
     };
 
-    searchBtn.addEventListener('click', triggerSearch);
-    searchInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') triggerSearch();
+    $('search-btn')?.addEventListener('click', runSearch);
+
+    searchInput?.addEventListener('keypress', (event) => {
+        if (event.key === 'Enter') {
+            runSearch();
+        }
     });
 
-    // Reset search
-    document.getElementById('reset-search-btn').addEventListener('click', () => {
-        searchInput.value = '';
+    $('reset-search-btn')?.addEventListener('click', () => {
+        if (searchInput) {
+            searchInput.value = '';
+        }
+
         AppState.searchQuery = '';
         renderFeedGrid();
     });
 
-    // Bind Category Filter tabs clicks
-    document.querySelectorAll('.filter-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            
-            AppState.activeFilter = tab.dataset.filter;
-            resetFiltersUI(AppState.activeFilter);
-            renderFeedGrid();
+    // Category filters.
+    document.querySelectorAll('.filter-tab')
+        .forEach((tab) => {
+            tab.addEventListener('click', () => {
+                resetFiltersUI(tab.dataset.filter);
+                renderFeedGrid();
+            });
         });
-    });
 
-    // Bind Language Filter tabs clicks
-    document.querySelectorAll('.language-filter-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.language-filter-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            AppState.activeLanguageFilter = btn.dataset.lang;
-            resetLanguageUI(AppState.activeLanguageFilter);
-            renderFeedGrid();
+    // Language filters.
+    document.querySelectorAll('.language-filter-btn')
+        .forEach((button) => {
+            button.addEventListener('click', () => {
+                resetLanguageUI(button.dataset.lang);
+                renderFeedGrid();
+            });
         });
-    });
 
-    // Bind Admin login
-    const loginForm = document.getElementById('admin-login-form');
-    loginForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const inputPasscode = document.getElementById('admin-passcode').value;
-        const storedPasscode = localStorage.getItem('admin_passcode');
-        const loginError = document.getElementById('login-error');
+    // Firebase Email/Password login.
+    const loginForm = $('admin-login-form');
 
-        if (inputPasscode === storedPasscode) {
-            AppState.isAdminLoggedIn = true;
-            sessionStorage.setItem('admin_authenticated', 'true');
-            loginError.classList.add('hidden');
-            loginForm.reset();
-            renderAdminPanel();
-        } else {
-            loginError.classList.remove('hidden');
-        }
-    });
+    if (loginForm) {
+        ensureAdminEmailField();
 
-    // Bind Admin Log Out
-    document.getElementById('admin-logout-btn').addEventListener('click', () => {
-        AppState.isAdminLoggedIn = false;
-        sessionStorage.removeItem('admin_authenticated');
-        renderAdminPanel();
-    });
+        loginForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
 
-    // Bind Change Passcode Forms
-    document.getElementById('change-passcode-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const newCode = document.getElementById('new-passcode').value;
-        if (newCode.length < 4) {
-            alert("Passcode must be at least 4 characters.");
-            return;
-        }
-        localStorage.setItem('admin_passcode', newCode);
-        alert("Success! Access passcode changed.");
-        document.getElementById('change-passcode-form').reset();
-    });
+            const email =
+                $('admin-email')?.value.trim() || '';
 
-    // Bind Admin Image Tab Triggers
-    document.querySelectorAll('.image-tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            switchImageTab(btn.dataset.source);
+            const password =
+                $('admin-passcode')?.value || '';
+
+            updateLoginError('');
+
+            try {
+                await loadFirebaseFunctions();
+
+                if (typeof signInAdmin !== 'function') {
+                    throw new Error(
+                        'Firebase Authentication is unavailable. Check firebase.js.'
+                    );
+                }
+
+                await signInAdmin(email, password);
+
+                AppState.isAdminLoggedIn = true;
+
+                loginForm.reset();
+                renderAdminPanel();
+
+            } catch (error) {
+                console.error('Admin login failed:', error);
+
+                const invalidCodes = [
+                    'auth/invalid-credential',
+                    'auth/invalid-login-credentials',
+                    'auth/user-not-found',
+                    'auth/wrong-password',
+                    'auth/invalid-email'
+                ];
+
+                if (invalidCodes.includes(error.code)) {
+                    updateLoginError(
+                        'Incorrect email or password.'
+                    );
+
+                } else if (
+                    error.code === 'auth/too-many-requests'
+                ) {
+                    updateLoginError(
+                        'Too many attempts. Wait a while and try again.'
+                    );
+
+                } else {
+                    updateLoginError(
+                        error.message ||
+                        'Login failed. Please try again.'
+                    );
+                }
+            }
         });
-    });
+    }
 
-    // Bind admin image upload reader
-    document.getElementById('student-photo-file').addEventListener('change', handleStudentPhotoUpload);
+    // Firebase logout.
+    $('admin-logout-btn')?.addEventListener(
+        'click',
+        async () => {
+            try {
+                await loadFirebaseFunctions();
+                await signOutAdmin();
 
-    // Bind admin publish submissions forms
-    document.getElementById('publish-form').addEventListener('submit', publishNewPost);
+                AppState.isAdminLoggedIn = false;
+                renderAdminPanel();
 
-    // Bind Admin Database Backup buttons
-    document.getElementById('db-export-btn').addEventListener('click', exportDatabase);
-    document.getElementById('db-import-file').addEventListener('change', importDatabase);
-    
-    // Bind restore default database values
-    document.getElementById('db-reset-btn').addEventListener('click', () => {
-        if (confirm("WARNING: This will completely delete all posts from Firestore and replace with empty state. This cannot be undone. Continue?")) {
-            // Delete all posts from Firestore
-            Promise.all(AppState.posts.map(post => deletePostFromFirestore(post.id)))
-                .then(() => {
-                    AppState.posts = [...DEFAULT_POSTS];
-                    renderAdminPanel();
-                    alert("Database cleared from Firestore. All submissions have been deleted.");
-                })
-                .catch((error) => {
-                    console.error("Error clearing database:", error);
-                    alert("Error clearing database. Please try again.");
-                });
+            } catch (error) {
+                console.error('Logout failed:', error);
+
+                alert(
+                    `Logout failed: ${error.message || 'Please try again.'}`
+                );
+            }
         }
-    });
+    );
 
-    // Mobile Hamburger Toggle
-    const menuToggle = document.getElementById('menuToggle');
+    // Password management is handled by Firebase.
+    $('change-passcode-form')?.addEventListener(
+        'submit',
+        (event) => {
+            event.preventDefault();
+
+            alert(
+                'Admin password is managed by Firebase Authentication. ' +
+                'Use Firebase Console > Authentication > Users to manage or reset it.'
+            );
+
+            event.currentTarget.reset();
+        }
+    );
+
+    // Image selection tabs.
+    document.querySelectorAll('.image-tab-btn')
+        .forEach((button) => {
+            button.addEventListener('click', () => {
+                switchImageTab(button.dataset.source);
+            });
+        });
+
+    $('student-photo-file')?.addEventListener(
+        'change',
+        handleStudentPhotoUpload
+    );
+
+    // Publish new posts.
+    $('publish-form')?.addEventListener(
+        'submit',
+        publishNewPost
+    );
+
+    // Database backup and import.
+    $('db-export-btn')?.addEventListener(
+        'click',
+        exportDatabase
+    );
+
+    $('db-import-file')?.addEventListener(
+        'change',
+        importDatabase
+    );
+
+    // Clear all posts.
+    $('db-reset-btn')?.addEventListener(
+        'click',
+        async () => {
+            if (!AppState.isAdminLoggedIn) {
+                alert(
+                    'Please sign in with the Firebase admin account first.'
+                );
+                return;
+            }
+
+            const confirmed = confirm(
+                'WARNING: This permanently deletes all posts from the current Firestore database. ' +
+                'This cannot be undone. Continue?'
+            );
+
+            if (!confirmed) return;
+
+            try {
+                await loadFirebaseFunctions();
+
+                await Promise.all(
+                    AppState.posts.map((post) =>
+                        deletePostFromFirestore(post.id)
+                    )
+                );
+
+                AppState.posts = [...DEFAULT_POSTS];
+
+                renderAdminPanel();
+                renderFeedGrid();
+
+                alert('Posts deleted from Firestore.');
+
+            } catch (error) {
+                console.error(
+                    'Error clearing database:',
+                    error
+                );
+
+                alert(
+                    `Could not clear the database: ${error.message || 'Please try again.'}`
+                );
+            }
+        }
+    );
+
+    // Mobile navigation.
+    const menuToggle = $('menuToggle');
     const navMenu = document.querySelector('.nav-menu');
-    menuToggle.addEventListener('click', () => {
+
+    menuToggle?.addEventListener('click', () => {
+        if (!navMenu) return;
+
         navMenu.classList.toggle('show');
-        const menuIcon = menuToggle.querySelector('i');
-        if (navMenu.classList.contains('show')) {
-            menuIcon.className = "fa-solid fa-xmark";
-        } else {
-            menuIcon.className = "fa-solid fa-bars";
+
+        const icon = menuToggle.querySelector('i');
+
+        if (icon) {
+            icon.className =
+                navMenu.classList.contains('show')
+                    ? 'fa-solid fa-xmark'
+                    : 'fa-solid fa-bars';
         }
     });
+
+    router();
 });
 
-/* 
-   =========================================
-   Utility Helpers
-   =========================================
-*/
+/* =========================================
+   UTILITY HELPERS
+   ========================================= */
 
-// Format date strings into user-friendly layouts e.g. "18 May 2024"
 function formatDateString(dateStr) {
     if (!dateStr) return '';
-    const dateObj = new Date(dateStr);
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    
-    // Quick validation check
-    if (isNaN(dateObj.getTime())) {
-        return dateStr;
+
+    const date = new Date(dateStr);
+
+    const months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+
+    if (Number.isNaN(date.getTime())) {
+        return String(dateStr);
     }
-    
-    const day = dateObj.getDate();
-    const month = months[dateObj.getMonth()];
-    const year = dateObj.getFullYear();
-    
-    return `${day} ${month} ${year}`;
+
+    return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
 }
 
-// Calculate standard text read times dynamically based on words count
 function calculateReadTime(text) {
     if (!text) return '1 min read';
-    const wordsPerMinute = 200;
-    const words = text.trim().split(/\s+/).length;
-    const minutes = Math.ceil(words / wordsPerMinute);
-    return `${minutes} min read`;
+
+    const words = String(text)
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean).length;
+
+    return `${Math.max(1, Math.ceil(words / 200))} min read`;
 }
