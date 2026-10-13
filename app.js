@@ -1,51 +1,40 @@
 /**
  * Hybrid's Expressions - Main Application JS
- * Uses Firebase Authentication for admin login
- * and Firestore for persistent online data storage.
+ * Firebase Authentication + Firestore
  */
 
 let firebaseModulePromise = null;
 let authStateUnsubscribe = null;
 
-let initializeFirebase;
-let fetchPostsFromFirestore;
-let addPostToFirestore;
-let updatePostInFirestore;
-let deletePostFromFirestore;
-let updatePostLikes;
-let isFirestoreReady;
-let signInAdmin;
-let signOutAdmin;
+let initializeFirebase, fetchPostsFromFirestore, addPostToFirestore;
+let updatePostInFirestore, deletePostFromFirestore, updatePostLikes;
+let isFirestoreReady, signInAdmin, signOutAdmin;
 let onFirebaseAuthStateChanged;
 
 function loadFirebaseFunctions() {
     if (!firebaseModulePromise) {
-        firebaseModulePromise = import('./firebase.js')
-            .then((m) => {
-                initializeFirebase = m.initializeFirebase;
-                fetchPostsFromFirestore = m.fetchPostsFromFirestore;
-                addPostToFirestore = m.addPostToFirestore;
-                updatePostInFirestore = m.updatePostInFirestore;
-                deletePostFromFirestore = m.deletePostFromFirestore;
-                updatePostLikes = m.updatePostLikes;
-                isFirestoreReady = m.isFirestoreReady;
-
-                signInAdmin = m.signInAdmin;
-                signOutAdmin = m.signOutAdmin;
-                onFirebaseAuthStateChanged = m.onFirebaseAuthStateChanged;
-
-                return m;
-            })
-            .catch((error) => {
-                firebaseModulePromise = null;
-                throw error;
-            });
+        firebaseModulePromise = import('./firebase.js').then((m) => {
+            initializeFirebase = m.initializeFirebase;
+            fetchPostsFromFirestore = m.fetchPostsFromFirestore;
+            addPostToFirestore = m.addPostToFirestore;
+            updatePostInFirestore = m.updatePostInFirestore;
+            deletePostFromFirestore = m.deletePostFromFirestore;
+            updatePostLikes = m.updatePostLikes;
+            isFirestoreReady = m.isFirestoreReady;
+            signInAdmin = m.signInAdmin;
+            signOutAdmin = m.signOutAdmin;
+            onFirebaseAuthStateChanged = m.onFirebaseAuthStateChanged;
+            return m;
+        }).catch((error) => {
+            firebaseModulePromise = null;
+            throw error;
+        });
     }
 
     return firebaseModulePromise;
 }
 
-// Global Application State
+// Global application state
 const AppState = {
     posts: [],
     likedPosts: [],
@@ -63,7 +52,6 @@ function $(id) {
     return document.getElementById(id);
 }
 
-// Safely escape text inserted into HTML.
 function escapeHTML(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({
         '&': '&amp;',
@@ -74,7 +62,6 @@ function escapeHTML(value) {
     })[character]);
 }
 
-// Get a safe image URL or a default avatar.
 function getStudentPhotoURL(photo, studentName) {
     const fallback =
         `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(studentName || 'writer')}`;
@@ -118,7 +105,6 @@ async function initDatabase() {
             `Loaded ${AppState.posts.length} posts from Firestore.`
         );
 
-        // Track Firebase Authentication state.
         if (typeof onFirebaseAuthStateChanged === 'function') {
             if (typeof authStateUnsubscribe === 'function') {
                 authStateUnsubscribe();
@@ -142,13 +128,9 @@ async function initDatabase() {
         AppState.posts = [...DEFAULT_POSTS];
     }
 
-    // Likes are saved on this device.
     try {
         const saved = localStorage.getItem('liked_posts');
-
-        AppState.likedPosts = saved
-            ? JSON.parse(saved)
-            : [];
+        AppState.likedPosts = saved ? JSON.parse(saved) : [];
 
         if (!Array.isArray(AppState.likedPosts)) {
             AppState.likedPosts = [];
@@ -205,7 +187,6 @@ function router() {
     const hash = window.location.hash || '#/home';
 
     updateNavStyles(hash);
-
     $('nav-menu-toggle-list')?.classList.remove('show');
 
     if (hash === '#/home' || hash === '#/') {
@@ -265,6 +246,7 @@ function showView(viewId) {
 
     if (view) {
         view.classList.remove('hidden');
+
         window.scrollTo({
             top: 0,
             behavior: 'smooth'
@@ -275,14 +257,12 @@ function showView(viewId) {
 function resetFiltersUI(filter) {
     AppState.activeFilter = filter;
 
-    document
-        .querySelectorAll('.filter-tab')
-        .forEach((tab) => {
-            tab.classList.toggle(
-                'active',
-                tab.dataset.filter === filter
-            );
-        });
+    document.querySelectorAll('.filter-tab').forEach((tab) => {
+        tab.classList.toggle(
+            'active',
+            tab.dataset.filter === filter
+        );
+    });
 
     updateFeedTitle();
 }
@@ -290,14 +270,12 @@ function resetFiltersUI(filter) {
 function resetLanguageUI(language) {
     AppState.activeLanguageFilter = language;
 
-    document
-        .querySelectorAll('.language-filter-btn')
-        .forEach((button) => {
-            button.classList.toggle(
-                'active',
-                button.dataset.lang === language
-            );
-        });
+    document.querySelectorAll('.language-filter-btn').forEach((button) => {
+        button.classList.toggle(
+            'active',
+            button.dataset.lang === language
+        );
+    });
 
     updateFeedTitle();
 }
@@ -352,10 +330,7 @@ function renderFeedGrid() {
     );
 
     const filtered = sorted.filter((post) => {
-        const language = String(
-            post.language || 'english'
-        ).toLowerCase();
-
+        const language = String(post.language || 'english').toLowerCase();
         const name = String(post.studentName || '');
         const title = String(post.title || '');
 
@@ -410,28 +385,16 @@ function renderFeedGrid() {
         );
 
         const photo = escapeHTML(
-            getStudentPhotoURL(
-                post.studentPhoto,
-                post.studentName
-            )
+            getStudentPhotoURL(post.studentPhoto, post.studentName)
         );
 
-        const likes = Math.max(
-            0,
-            Number(post.likes) || 0
-        );
-
+        const likes = Math.max(0, Number(post.likes) || 0);
         const liked = AppState.likedPosts.includes(post.id);
 
-        grid.insertAdjacentHTML(
-            'beforeend',
-            `
+        grid.insertAdjacentHTML('beforeend', `
             <article class="writing-card" data-id="${id}">
                 <div class="card-body">
-                    <span class="card-badge ${category}">
-                        ${category}
-                    </span>
-
+                    <span class="card-badge ${category}">${category}</span>
                     <h4 class="card-title">${title}</h4>
 
                     <div class="card-author" data-writer="${name}">
@@ -463,8 +426,7 @@ function renderFeedGrid() {
                     </div>
                 </div>
             </article>
-            `
-        );
+        `);
     });
 
     grid.querySelectorAll('.writing-card').forEach((card) => {
@@ -473,13 +435,11 @@ function renderFeedGrid() {
 
             if (like) {
                 event.stopPropagation();
-
                 toggleLikePost(like.dataset.id, like);
                 return;
             }
 
-            window.location.hash =
-                `#/post/${card.dataset.id}`;
+            window.location.hash = `#/post/${card.dataset.id}`;
         });
     });
 }
@@ -507,16 +467,21 @@ function getIllustrationIcon(illustration) {
 }
 
 function formatStudentMeta(post) {
-    return `${
+    const status =
         post.studentStatus === 'alumni'
             ? 'Alumni Student'
-            : 'Current Student'
-    }${
-        post.studentGrade
-            ? ` · ${post.studentGrade}`
-            : ''
-    }`;
+            : 'Current Student';
+
+    const grade = post.studentGrade
+        ? ` · ${post.studentGrade}`
+        : '';
+
+    return `${status}${grade}`;
 }
+
+/* =========================================
+   POST DETAIL PAGE
+   ========================================= */
 
 function renderPostDetail(id) {
     const post = AppState.posts.find(
@@ -581,25 +546,27 @@ function renderPostDetail(id) {
             formatStudentMeta(post);
     }
 
+    // FIX: Always use the full writer name from this post's data.
     const viewWriter = $('detail-view-writer-btn');
 
-if (viewWriter) {
-    // Display the complete name of the current writer.
-    const writerName = post.studentName || 'this writer';
+    if (viewWriter) {
+        const writerName = String(
+            post.studentName || 'this writer'
+        ).trim();
 
-    viewWriter.textContent = `View all works by ${writerName}`;
+        viewWriter.textContent =
+            `View all works by ${writerName}`;
 
-    // Show all writings by the selected writer.
-    viewWriter.onclick = () => {
-        AppState.searchQuery = writerName;
+        viewWriter.onclick = () => {
+            AppState.searchQuery = writerName;
 
-        if ($('search-input')) {
-            $('search-input').value = writerName;
-        }
+            if ($('search-input')) {
+                $('search-input').value = writerName;
+            }
 
-        window.location.hash = '#/home';
-    };
-}
+            window.location.hash = '#/home';
+        };
+    }
 
     const likeButton = $('detail-like-btn');
 
@@ -634,6 +601,10 @@ if (viewWriter) {
     }
 }
 
+/* =========================================
+   WRITERS DIRECTORY
+   ========================================= */
+
 function renderWritersDirectory() {
     const grid = $('writers-grid');
 
@@ -665,13 +636,12 @@ function renderWritersDirectory() {
 
     Object.values(writers).forEach((writer) => {
         const name = escapeHTML(writer.name);
+        const photo = escapeHTML(writer.photo);
 
-        grid.insertAdjacentHTML(
-            'beforeend',
-            `
+        grid.insertAdjacentHTML('beforeend', `
             <div class="writer-card" data-name="${name}">
                 <img
-                    src="${escapeHTML(writer.photo)}"
+                    src="${photo}"
                     alt="${name}"
                     class="writer-photo"
                 >
@@ -687,8 +657,7 @@ function renderWritersDirectory() {
                     ${writer.count === 1 ? 'Writing' : 'Writings'}
                 </span>
             </div>
-            `
-        );
+        `);
     });
 
     grid.querySelectorAll('.writer-card').forEach((card) => {
@@ -715,11 +684,7 @@ async function toggleLikePost(id, element, countElement) {
 
     if (!post || !element) return;
 
-    const oldLikes = Math.max(
-        0,
-        Number(post.likes) || 0
-    );
-
+    const oldLikes = Math.max(0, Number(post.likes) || 0);
     const oldLiked = AppState.likedPosts.includes(id);
 
     const newLikes = Math.max(
@@ -797,7 +762,6 @@ function ensureAdminEmailField() {
     }
 
     const group = password.closest('.form-group');
-
     const oldLabel =
         form.querySelector('label[for="admin-passcode"]');
 
@@ -806,12 +770,9 @@ function ensureAdminEmailField() {
     }
 
     const emailGroup = document.createElement('div');
-
-    emailGroup.className =
-        group?.className || 'form-group';
+    emailGroup.className = group?.className || 'form-group';
 
     const label = document.createElement('label');
-
     label.htmlFor = 'admin-email';
     label.textContent = 'Admin Email';
 
@@ -834,10 +795,7 @@ function ensureAdminEmailField() {
     if (group?.parentNode) {
         group.parentNode.insertBefore(emailGroup, group);
     } else {
-        password.parentNode.insertBefore(
-            emailGroup,
-            password
-        );
+        password.parentNode.insertBefore(emailGroup, password);
     }
 
     password.autocomplete = 'current-password';
@@ -866,8 +824,7 @@ function renderAdminPanel() {
         const date = $('post-date');
 
         if (date && !date.value) {
-            date.value =
-                new Date().toISOString().split('T')[0];
+            date.value = new Date().toISOString().split('T')[0];
         }
 
         if ($('admin-posts-count')) {
@@ -929,31 +886,28 @@ function renderAdminPostsList() {
         list.appendChild(li);
     });
 
-    list.querySelectorAll('.admin-post-item-title')
-        .forEach((item) => {
-            item.addEventListener('click', () => {
-                window.location.hash =
-                    `#/post/${item.dataset.id}`;
-            });
+    list.querySelectorAll('.admin-post-item-title').forEach((item) => {
+        item.addEventListener('click', () => {
+            window.location.hash = `#/post/${item.dataset.id}`;
         });
+    });
 
-    list.querySelectorAll('.btn-delete-post')
-        .forEach((button) => {
-            button.addEventListener('click', () => {
-                const post = AppState.posts.find(
-                    (item) => item.id === button.dataset.id
-                );
+    list.querySelectorAll('.btn-delete-post').forEach((button) => {
+        button.addEventListener('click', () => {
+            const post = AppState.posts.find(
+                (item) => item.id === button.dataset.id
+            );
 
-                if (
-                    post &&
-                    confirm(
-                        `Are you sure you want to delete "${post.title}" by ${post.studentName}?`
-                    )
-                ) {
-                    deletePost(post.id);
-                }
-            });
+            if (
+                post &&
+                confirm(
+                    `Are you sure you want to delete "${post.title}" by ${post.studentName}?`
+                )
+            ) {
+                deletePost(post.id);
+            }
         });
+    });
 }
 
 /* =========================================
@@ -1059,8 +1013,7 @@ async function publishNewPost(event) {
         AppState.uploadedImageBase64 = null;
 
         if ($('file-upload-name')) {
-            $('file-upload-name').textContent =
-                'No file selected';
+            $('file-upload-name').textContent = 'No file selected';
         }
 
         switchImageTab('avatar');
@@ -1086,27 +1039,24 @@ async function publishNewPost(event) {
 async function deletePost(id) {
     if (!AppState.isAdminLoggedIn) {
         alert(
-            'Please sign in with your Firebase admin account first.'
+            'Please sign in with the Firebase admin account first.'
         );
         return;
     }
 
     try {
         await loadFirebaseFunctions();
-
         await deletePostFromFirestore(id);
 
         AppState.posts = AppState.posts.filter(
             (post) => post.id !== id
         );
 
-        AppState.likedPosts =
-            AppState.likedPosts.filter(
-                (postId) => postId !== id
-            );
+        AppState.likedPosts = AppState.likedPosts.filter(
+            (postId) => postId !== id
+        );
 
         saveLikes();
-
         renderAdminPanel();
         renderFeedGrid();
 
@@ -1120,25 +1070,23 @@ async function deletePost(id) {
 }
 
 /* =========================================
-   IMAGE UPLOAD AND IMAGE TABS
+   IMAGE UPLOAD
    ========================================= */
 
 function switchImageTab(source) {
-    document.querySelectorAll('.image-tab-btn')
-        .forEach((button) => {
-            button.classList.toggle(
-                'active',
-                button.dataset.source === source
-            );
-        });
+    document.querySelectorAll('.image-tab-btn').forEach((button) => {
+        button.classList.toggle(
+            'active',
+            button.dataset.source === source
+        );
+    });
 
-    document.querySelectorAll('.image-input-field')
-        .forEach((field) => {
-            field.classList.toggle(
-                'hidden',
-                field.id !== `source-${source}`
-            );
-        });
+    document.querySelectorAll('.image-input-field').forEach((field) => {
+        field.classList.toggle(
+            'hidden',
+            field.id !== `source-${source}`
+        );
+    });
 }
 
 function handleStudentPhotoUpload(event) {
@@ -1158,7 +1106,6 @@ function handleStudentPhotoUpload(event) {
         return;
     }
 
-    // Firestore documents have a size limit.
     if (file.size > 500 * 1024) {
         alert(
             'This image is too large for the current Firestore upload method. ' +
@@ -1170,15 +1117,12 @@ function handleStudentPhotoUpload(event) {
         return;
     }
 
-    if (label) {
-        label.textContent = file.name;
-    }
+    if (label) label.textContent = file.name;
 
     const reader = new FileReader();
 
-    reader.onload = (eventResult) => {
-        AppState.uploadedImageBase64 =
-            eventResult.target.result;
+    reader.onload = (e) => {
+        AppState.uploadedImageBase64 = e.target.result;
     };
 
     reader.onerror = () => {
@@ -1195,7 +1139,7 @@ function handleStudentPhotoUpload(event) {
 }
 
 /* =========================================
-   DATABASE BACKUP AND RESTORE
+   DATABASE BACKUP AND IMPORT
    ========================================= */
 
 function exportDatabase() {
@@ -1208,7 +1152,6 @@ function exportDatabase() {
     const link = document.createElement('a');
 
     link.href = data;
-
     link.download =
         `hybrids_writers_backup_${new Date().toISOString().split('T')[0]}.json`;
 
@@ -1291,13 +1234,12 @@ async function importDatabase(event) {
 }
 
 /* =========================================
-   STARTUP AND EVENT LISTENERS
+   APPLICATION STARTUP
    ========================================= */
 
 document.addEventListener('DOMContentLoaded', async () => {
     if ($('current-year')) {
-        $('current-year').textContent =
-            new Date().getFullYear();
+        $('current-year').textContent = new Date().getFullYear();
     }
 
     await initDatabase();
@@ -1317,14 +1259,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const runSearch = () => {
         if (!searchInput) return;
 
-        AppState.searchQuery =
-            searchInput.value.trim();
+        AppState.searchQuery = searchInput.value.trim();
 
-        if (
-            !['#/home', '#/', ''].includes(
-                window.location.hash
-            )
-        ) {
+        if (!['#/home', '#/', ''].includes(window.location.hash)) {
             window.location.hash = '#/home';
         } else {
             renderFeedGrid();
@@ -1334,39 +1271,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('search-btn')?.addEventListener('click', runSearch);
 
     searchInput?.addEventListener('keypress', (event) => {
-        if (event.key === 'Enter') {
-            runSearch();
-        }
+        if (event.key === 'Enter') runSearch();
     });
 
     $('reset-search-btn')?.addEventListener('click', () => {
-        if (searchInput) {
-            searchInput.value = '';
-        }
+        if (searchInput) searchInput.value = '';
 
         AppState.searchQuery = '';
         renderFeedGrid();
     });
 
-    // Category filters.
-    document.querySelectorAll('.filter-tab')
-        .forEach((tab) => {
-            tab.addEventListener('click', () => {
-                resetFiltersUI(tab.dataset.filter);
-                renderFeedGrid();
-            });
+    document.querySelectorAll('.filter-tab').forEach((tab) => {
+        tab.addEventListener('click', () => {
+            resetFiltersUI(tab.dataset.filter);
+            renderFeedGrid();
         });
+    });
 
-    // Language filters.
-    document.querySelectorAll('.language-filter-btn')
-        .forEach((button) => {
-            button.addEventListener('click', () => {
-                resetLanguageUI(button.dataset.lang);
-                renderFeedGrid();
-            });
+    document.querySelectorAll('.language-filter-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+            resetLanguageUI(button.dataset.lang);
+            renderFeedGrid();
         });
+    });
 
-    // Firebase Email/Password login.
+    // Firebase Email/Password sign-in.
     const loginForm = $('admin-login-form');
 
     if (loginForm) {
@@ -1375,11 +1304,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         loginForm.addEventListener('submit', async (event) => {
             event.preventDefault();
 
-            const email =
-                $('admin-email')?.value.trim() || '';
-
-            const password =
-                $('admin-passcode')?.value || '';
+            const email = $('admin-email')?.value.trim() || '';
+            const password = $('admin-passcode')?.value || '';
 
             updateLoginError('');
 
@@ -1395,14 +1321,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 await signInAdmin(email, password);
 
                 AppState.isAdminLoggedIn = true;
-
                 loginForm.reset();
+
                 renderAdminPanel();
 
             } catch (error) {
                 console.error('Admin login failed:', error);
 
-                const invalidCodes = [
+                const invalid = [
                     'auth/invalid-credential',
                     'auth/invalid-login-credentials',
                     'auth/user-not-found',
@@ -1410,22 +1336,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                     'auth/invalid-email'
                 ];
 
-                if (invalidCodes.includes(error.code)) {
-                    updateLoginError(
-                        'Incorrect email or password.'
-                    );
+                if (invalid.includes(error.code)) {
+                    updateLoginError('Incorrect email or password.');
 
-                } else if (
-                    error.code === 'auth/too-many-requests'
-                ) {
+                } else if (error.code === 'auth/too-many-requests') {
                     updateLoginError(
                         'Too many attempts. Wait a while and try again.'
                     );
 
                 } else {
                     updateLoginError(
-                        error.message ||
-                        'Login failed. Please try again.'
+                        error.message || 'Login failed. Please try again.'
                     );
                 }
             }
@@ -1433,117 +1354,101 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Firebase logout.
-    $('admin-logout-btn')?.addEventListener(
-        'click',
-        async () => {
-            try {
-                await loadFirebaseFunctions();
-                await signOutAdmin();
+    $('admin-logout-btn')?.addEventListener('click', async () => {
+        try {
+            await loadFirebaseFunctions();
+            await signOutAdmin();
 
-                AppState.isAdminLoggedIn = false;
-                renderAdminPanel();
+            AppState.isAdminLoggedIn = false;
+            renderAdminPanel();
 
-            } catch (error) {
-                console.error('Logout failed:', error);
-
-                alert(
-                    `Logout failed: ${error.message || 'Please try again.'}`
-                );
-            }
-        }
-    );
-
-    // Password management is handled by Firebase.
-    $('change-passcode-form')?.addEventListener(
-        'submit',
-        (event) => {
-            event.preventDefault();
+        } catch (error) {
+            console.error('Logout failed:', error);
 
             alert(
-                'Admin password is managed by Firebase Authentication. ' +
-                'Use Firebase Console > Authentication > Users to manage or reset it.'
+                `Logout failed: ${error.message || 'Please try again.'}`
             );
-
-            event.currentTarget.reset();
         }
-    );
+    });
 
-    // Image selection tabs.
-    document.querySelectorAll('.image-tab-btn')
-        .forEach((button) => {
-            button.addEventListener('click', () => {
-                switchImageTab(button.dataset.source);
-            });
+    // Firebase manages the admin password.
+    $('change-passcode-form')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+
+        alert(
+            'Admin password is managed by Firebase Authentication. ' +
+            'Use Firebase Console > Authentication > Users to manage or reset it.'
+        );
+
+        event.currentTarget.reset();
+    });
+
+    // Image tabs and upload.
+    document.querySelectorAll('.image-tab-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+            switchImageTab(button.dataset.source);
         });
+    });
 
     $('student-photo-file')?.addEventListener(
         'change',
         handleStudentPhotoUpload
     );
 
-    // Publish new posts.
     $('publish-form')?.addEventListener(
         'submit',
         publishNewPost
     );
 
-    // Database backup and import.
-    $('db-export-btn')?.addEventListener(
-        'click',
-        exportDatabase
-    );
+    // Backup and import.
+    $('db-export-btn')?.addEventListener('click', exportDatabase);
 
     $('db-import-file')?.addEventListener(
         'change',
         importDatabase
     );
 
-    // Clear all posts.
-    $('db-reset-btn')?.addEventListener(
-        'click',
-        async () => {
-            if (!AppState.isAdminLoggedIn) {
-                alert(
-                    'Please sign in with the Firebase admin account first.'
-                );
-                return;
-            }
+    // This only runs if an administrator explicitly presses Reset
+    // and confirms the warning. Do not press it when testing.
+    $('db-reset-btn')?.addEventListener('click', async () => {
+        if (!AppState.isAdminLoggedIn) {
+            alert(
+                'Please sign in with the Firebase admin account first.'
+            );
+            return;
+        }
 
-            const confirmed = confirm(
-                'WARNING: This permanently deletes all posts from the current Firestore database. ' +
-                'This cannot be undone. Continue?'
+        if (!confirm(
+            'WARNING: This permanently deletes all posts from the current Firestore database. ' +
+            'This cannot be undone. Continue?'
+        )) {
+            return;
+        }
+
+        try {
+            await loadFirebaseFunctions();
+
+            await Promise.all(
+                AppState.posts.map((post) =>
+                    deletePostFromFirestore(post.id)
+                )
             );
 
-            if (!confirmed) return;
+            AppState.posts = [...DEFAULT_POSTS];
 
-            try {
-                await loadFirebaseFunctions();
+            renderAdminPanel();
+            renderFeedGrid();
 
-                await Promise.all(
-                    AppState.posts.map((post) =>
-                        deletePostFromFirestore(post.id)
-                    )
-                );
+            alert('Posts deleted from Firestore.');
 
-                AppState.posts = [...DEFAULT_POSTS];
+        } catch (error) {
+            console.error('Error clearing database:', error);
 
-                renderAdminPanel();
-                renderFeedGrid();
-
-                alert('Posts deleted from Firestore.');
-
-            } catch (error) {
-                console.error(
-                    'Error clearing database:',
-                    error
-                );
-
-                alert(
-                    `Could not clear the database: ${error.message || 'Please try again.'}`
-                );
-            }
+            alert(
+                `Could not clear the database: ${error.message || 'Please try again.'}`
+            );
         }
-    );
+    });
 
     // Mobile navigation.
     const menuToggle = $('menuToggle');
@@ -1557,10 +1462,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const icon = menuToggle.querySelector('i');
 
         if (icon) {
-            icon.className =
-                navMenu.classList.contains('show')
-                    ? 'fa-solid fa-xmark'
-                    : 'fa-solid fa-bars';
+            icon.className = navMenu.classList.contains('show')
+                ? 'fa-solid fa-xmark'
+                : 'fa-solid fa-bars';
         }
     });
 
@@ -1568,7 +1472,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 /* =========================================
-   UTILITY HELPERS
+   UTILITIES
    ========================================= */
 
 function formatDateString(dateStr) {
