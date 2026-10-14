@@ -1,8 +1,13 @@
 /**
  * Hybrid's Expressions - Main Application JS
  * Firebase Authentication + Firestore
+ *
+ * Updates:
+ * 1. Preserve the selected calendar date when displaying posts.
+ * 2. Remove the reading-time metadata from the post detail page.
  */
 
+// Firebase module functions
 let firebaseModulePromise = null;
 let authStateUnsubscribe = null;
 
@@ -13,22 +18,25 @@ let onFirebaseAuthStateChanged;
 
 function loadFirebaseFunctions() {
     if (!firebaseModulePromise) {
-        firebaseModulePromise = import('./firebase.js').then((m) => {
-            initializeFirebase = m.initializeFirebase;
-            fetchPostsFromFirestore = m.fetchPostsFromFirestore;
-            addPostToFirestore = m.addPostToFirestore;
-            updatePostInFirestore = m.updatePostInFirestore;
-            deletePostFromFirestore = m.deletePostFromFirestore;
-            updatePostLikes = m.updatePostLikes;
-            isFirestoreReady = m.isFirestoreReady;
-            signInAdmin = m.signInAdmin;
-            signOutAdmin = m.signOutAdmin;
-            onFirebaseAuthStateChanged = m.onFirebaseAuthStateChanged;
-            return m;
-        }).catch((error) => {
-            firebaseModulePromise = null;
-            throw error;
-        });
+        firebaseModulePromise = import('./firebase.js')
+            .then((m) => {
+                initializeFirebase = m.initializeFirebase;
+                fetchPostsFromFirestore = m.fetchPostsFromFirestore;
+                addPostToFirestore = m.addPostToFirestore;
+                updatePostInFirestore = m.updatePostInFirestore;
+                deletePostFromFirestore = m.deletePostFromFirestore;
+                updatePostLikes = m.updatePostLikes;
+                isFirestoreReady = m.isFirestoreReady;
+                signInAdmin = m.signInAdmin;
+                signOutAdmin = m.signOutAdmin;
+                onFirebaseAuthStateChanged = m.onFirebaseAuthStateChanged;
+
+                return m;
+            })
+            .catch((error) => {
+                firebaseModulePromise = null;
+                throw error;
+            });
     }
 
     return firebaseModulePromise;
@@ -52,6 +60,7 @@ function $(id) {
     return document.getElementById(id);
 }
 
+// Escape text inserted into HTML.
 function escapeHTML(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({
         '&': '&amp;',
@@ -62,6 +71,7 @@ function escapeHTML(value) {
     })[character]);
 }
 
+// Get a safe image URL or a default avatar.
 function getStudentPhotoURL(photo, studentName) {
     const fallback =
         `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(studentName || 'writer')}`;
@@ -74,12 +84,27 @@ function getStudentPhotoURL(photo, studentName) {
 
     if (
         /^https?:\/\//i.test(value) ||
-        /^data:image\/(png|jpeg|jpg|gif|webp);base64,/i.test(value)
+        /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(value)
     ) {
         return value;
     }
 
     return fallback;
+}
+
+/* =========================================
+   DATE HELPER
+   ========================================= */
+
+// Return a local YYYY-MM-DD string without UTC conversion.
+function getLocalDateInputValue() {
+    const now = new Date();
+
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
 }
 
 /* =========================================
@@ -99,6 +124,7 @@ async function initDatabase() {
         }
 
         const posts = await fetchPostsFromFirestore();
+
         AppState.posts = Array.isArray(posts) ? posts : [];
 
         console.log(
@@ -128,8 +154,10 @@ async function initDatabase() {
         AppState.posts = [...DEFAULT_POSTS];
     }
 
+    // Likes are saved on this device.
     try {
         const saved = localStorage.getItem('liked_posts');
+
         AppState.likedPosts = saved ? JSON.parse(saved) : [];
 
         if (!Array.isArray(AppState.likedPosts)) {
@@ -187,6 +215,7 @@ function router() {
     const hash = window.location.hash || '#/home';
 
     updateNavStyles(hash);
+
     $('nav-menu-toggle-list')?.classList.remove('show');
 
     if (hash === '#/home' || hash === '#/') {
@@ -330,7 +359,10 @@ function renderFeedGrid() {
     );
 
     const filtered = sorted.filter((post) => {
-        const language = String(post.language || 'english').toLowerCase();
+        const language = String(
+            post.language || 'english'
+        ).toLowerCase();
+
         const name = String(post.studentName || '');
         const title = String(post.title || '');
 
@@ -385,10 +417,17 @@ function renderFeedGrid() {
         );
 
         const photo = escapeHTML(
-            getStudentPhotoURL(post.studentPhoto, post.studentName)
+            getStudentPhotoURL(
+                post.studentPhoto,
+                post.studentName
+            )
         );
 
-        const likes = Math.max(0, Number(post.likes) || 0);
+        const likes = Math.max(
+            0,
+            Number(post.likes) || 0
+        );
+
         const liked = AppState.likedPosts.includes(post.id);
 
         grid.insertAdjacentHTML('beforeend', `
@@ -435,11 +474,13 @@ function renderFeedGrid() {
 
             if (like) {
                 event.stopPropagation();
+
                 toggleLikePost(like.dataset.id, like);
                 return;
             }
 
-            window.location.hash = `#/post/${card.dataset.id}`;
+            window.location.hash =
+                `#/post/${card.dataset.id}`;
         });
     });
 }
@@ -512,17 +553,26 @@ function renderPostDetail(id) {
             formatDateString(post.date);
     }
 
-    if ($('detail-read-time')) {
-        $('detail-read-time').textContent =
-            calculateReadTime(post.content);
+    // UPDATE: Remove reading time and its metadata wrapper.
+    // This does not change the post or its Firestore data.
+    const readTimeElement = $('detail-read-time');
+
+    if (readTimeElement) {
+        const readTimeWrapper = readTimeElement.closest(
+            '.meta-item, .detail-meta-item, .post-meta-item'
+        );
+
+        if (readTimeWrapper) {
+            readTimeWrapper.remove();
+        } else {
+            readTimeElement.remove();
+        }
     }
 
-    const content = $('detail-content');
+    if ($('detail-content')) {
+        $('detail-content').textContent = post.content || '';
 
-    if (content) {
-        content.textContent = post.content || '';
-
-        content.classList.toggle(
+        $('detail-content').classList.toggle(
             'poem-styling',
             post.category === 'poem'
         );
@@ -546,7 +596,6 @@ function renderPostDetail(id) {
             formatStudentMeta(post);
     }
 
-    // FIX: Always use the full writer name from this post's data.
     const viewWriter = $('detail-view-writer-btn');
 
     if (viewWriter) {
@@ -684,7 +733,11 @@ async function toggleLikePost(id, element, countElement) {
 
     if (!post || !element) return;
 
-    const oldLikes = Math.max(0, Number(post.likes) || 0);
+    const oldLikes = Math.max(
+        0,
+        Number(post.likes) || 0
+    );
+
     const oldLiked = AppState.likedPosts.includes(id);
 
     const newLikes = Math.max(
@@ -762,6 +815,7 @@ function ensureAdminEmailField() {
     }
 
     const group = password.closest('.form-group');
+
     const oldLabel =
         form.querySelector('label[for="admin-passcode"]');
 
@@ -770,9 +824,12 @@ function ensureAdminEmailField() {
     }
 
     const emailGroup = document.createElement('div');
-    emailGroup.className = group?.className || 'form-group';
+
+    emailGroup.className =
+        group?.className || 'form-group';
 
     const label = document.createElement('label');
+
     label.htmlFor = 'admin-email';
     label.textContent = 'Admin Email';
 
@@ -823,8 +880,9 @@ function renderAdminPanel() {
 
         const date = $('post-date');
 
+        // UPDATE: Use the local calendar date instead of a UTC date.
         if (date && !date.value) {
-            date.value = new Date().toISOString().split('T')[0];
+            date.value = getLocalDateInputValue();
         }
 
         if ($('admin-posts-count')) {
@@ -888,7 +946,8 @@ function renderAdminPostsList() {
 
     list.querySelectorAll('.admin-post-item-title').forEach((item) => {
         item.addEventListener('click', () => {
-            window.location.hash = `#/post/${item.dataset.id}`;
+            window.location.hash =
+                `#/post/${item.dataset.id}`;
         });
     });
 
@@ -932,9 +991,10 @@ async function publishNewPost(event) {
     const studentGrade = $('student-grade')?.value || '';
     const content = $('post-content')?.value || '';
 
+    // UPDATE: Fall back to the local calendar date.
     const date =
         $('post-date')?.value ||
-        new Date().toISOString().split('T')[0];
+        getLocalDateInputValue();
 
     const likes = Math.max(
         0,
@@ -1039,24 +1099,27 @@ async function publishNewPost(event) {
 async function deletePost(id) {
     if (!AppState.isAdminLoggedIn) {
         alert(
-            'Please sign in with the Firebase admin account first.'
+            'Please sign in with your Firebase admin account first.'
         );
         return;
     }
 
     try {
         await loadFirebaseFunctions();
+
         await deletePostFromFirestore(id);
 
         AppState.posts = AppState.posts.filter(
             (post) => post.id !== id
         );
 
-        AppState.likedPosts = AppState.likedPosts.filter(
-            (postId) => postId !== id
-        );
+        AppState.likedPosts =
+            AppState.likedPosts.filter(
+                (postId) => postId !== id
+            );
 
         saveLikes();
+
         renderAdminPanel();
         renderFeedGrid();
 
@@ -1094,7 +1157,9 @@ function handleStudentPhotoUpload(event) {
     const label = $('file-upload-name');
 
     if (!file) {
-        if (label) label.textContent = 'No file selected';
+        if (label) {
+            label.textContent = 'No file selected';
+        }
 
         AppState.uploadedImageBase64 = null;
         return;
@@ -1117,12 +1182,15 @@ function handleStudentPhotoUpload(event) {
         return;
     }
 
-    if (label) label.textContent = file.name;
+    if (label) {
+        label.textContent = file.name;
+    }
 
     const reader = new FileReader();
 
-    reader.onload = (e) => {
-        AppState.uploadedImageBase64 = e.target.result;
+    reader.onload = (eventResult) => {
+        AppState.uploadedImageBase64 =
+            eventResult.target.result;
     };
 
     reader.onerror = () => {
@@ -1152,6 +1220,7 @@ function exportDatabase() {
     const link = document.createElement('a');
 
     link.href = data;
+
     link.download =
         `hybrids_writers_backup_${new Date().toISOString().split('T')[0]}.json`;
 
@@ -1239,7 +1308,8 @@ async function importDatabase(event) {
 
 document.addEventListener('DOMContentLoaded', async () => {
     if ($('current-year')) {
-        $('current-year').textContent = new Date().getFullYear();
+        $('current-year').textContent =
+            new Date().getFullYear();
     }
 
     await initDatabase();
@@ -1259,9 +1329,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const runSearch = () => {
         if (!searchInput) return;
 
-        AppState.searchQuery = searchInput.value.trim();
+        AppState.searchQuery =
+            searchInput.value.trim();
 
-        if (!['#/home', '#/', ''].includes(window.location.hash)) {
+        if (
+            !['#/home', '#/', ''].includes(
+                window.location.hash
+            )
+        ) {
             window.location.hash = '#/home';
         } else {
             renderFeedGrid();
@@ -1271,16 +1346,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('search-btn')?.addEventListener('click', runSearch);
 
     searchInput?.addEventListener('keypress', (event) => {
-        if (event.key === 'Enter') runSearch();
+        if (event.key === 'Enter') {
+            runSearch();
+        }
     });
 
     $('reset-search-btn')?.addEventListener('click', () => {
-        if (searchInput) searchInput.value = '';
+        if (searchInput) {
+            searchInput.value = '';
+        }
 
         AppState.searchQuery = '';
+
         renderFeedGrid();
     });
 
+    // Category filters.
     document.querySelectorAll('.filter-tab').forEach((tab) => {
         tab.addEventListener('click', () => {
             resetFiltersUI(tab.dataset.filter);
@@ -1288,6 +1369,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
+    // Language filters.
     document.querySelectorAll('.language-filter-btn').forEach((button) => {
         button.addEventListener('click', () => {
             resetLanguageUI(button.dataset.lang);
@@ -1295,7 +1377,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    // Firebase Email/Password sign-in.
+    // Firebase Email/Password login.
     const loginForm = $('admin-login-form');
 
     if (loginForm) {
@@ -1304,8 +1386,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         loginForm.addEventListener('submit', async (event) => {
             event.preventDefault();
 
-            const email = $('admin-email')?.value.trim() || '';
-            const password = $('admin-passcode')?.value || '';
+            const email =
+                $('admin-email')?.value.trim() || '';
+
+            const password =
+                $('admin-passcode')?.value || '';
 
             updateLoginError('');
 
@@ -1321,6 +1406,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 await signInAdmin(email, password);
 
                 AppState.isAdminLoggedIn = true;
+
                 loginForm.reset();
 
                 renderAdminPanel();
@@ -1357,9 +1443,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('admin-logout-btn')?.addEventListener('click', async () => {
         try {
             await loadFirebaseFunctions();
+
             await signOutAdmin();
 
             AppState.isAdminLoggedIn = false;
+
             renderAdminPanel();
 
         } catch (error) {
@@ -1371,7 +1459,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // Firebase manages the admin password.
+    // Password management is handled by Firebase.
     $('change-passcode-form')?.addEventListener('submit', (event) => {
         event.preventDefault();
 
@@ -1383,7 +1471,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         event.currentTarget.reset();
     });
 
-    // Image tabs and upload.
+    // Image tabs.
     document.querySelectorAll('.image-tab-btn').forEach((button) => {
         button.addEventListener('click', () => {
             switchImageTab(button.dataset.source);
@@ -1395,21 +1483,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         handleStudentPhotoUpload
     );
 
+    // Publish posts.
     $('publish-form')?.addEventListener(
         'submit',
         publishNewPost
     );
 
-    // Backup and import.
-    $('db-export-btn')?.addEventListener('click', exportDatabase);
+    // Database backup and import.
+    $('db-export-btn')?.addEventListener(
+        'click',
+        exportDatabase
+    );
 
     $('db-import-file')?.addEventListener(
         'change',
         importDatabase
     );
 
-    // This only runs if an administrator explicitly presses Reset
-    // and confirms the warning. Do not press it when testing.
+    // This only executes if an administrator explicitly confirms deletion.
     $('db-reset-btn')?.addEventListener('click', async () => {
         if (!AppState.isAdminLoggedIn) {
             alert(
@@ -1445,7 +1536,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error('Error clearing database:', error);
 
             alert(
-                `Could not clear the database: ${error.message || 'Please try again.'}`
+                `Could not clear database: ${error.message || 'Please try again.'}`
             );
         }
     });
@@ -1462,9 +1553,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         const icon = menuToggle.querySelector('i');
 
         if (icon) {
-            icon.className = navMenu.classList.contains('show')
-                ? 'fa-solid fa-xmark'
-                : 'fa-solid fa-bars';
+            icon.className =
+                navMenu.classList.contains('show')
+                    ? 'fa-solid fa-xmark'
+                    : 'fa-solid fa-bars';
         }
     });
 
@@ -1475,18 +1567,46 @@ document.addEventListener('DOMContentLoaded', async () => {
    UTILITIES
    ========================================= */
 
+// UPDATE: Display the calendar date as saved, without UTC shifts.
 function formatDateString(dateStr) {
     if (!dateStr) return '';
 
-    const date = new Date(dateStr);
+    const raw = String(dateStr).trim();
 
     const months = [
         'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
     ];
 
+    // Preserve YYYY-MM-DD from date input and ISO date strings.
+    const match = raw.match(
+        /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/
+    );
+
+    if (match) {
+        const year = Number(match[1]);
+        const month = Number(match[2]);
+        const day = Number(match[3]);
+
+        const validMonth = month >= 1 && month <= 12;
+
+        const daysInMonth = validMonth
+            ? new Date(Date.UTC(year, month, 0)).getUTCDate()
+            : 0;
+
+        if (
+            day >= 1 &&
+            day <= daysInMonth
+        ) {
+            return `${day} ${months[month - 1]} ${year}`;
+        }
+    }
+
+    // Fallback for previously saved dates in other formats.
+    const date = new Date(raw);
+
     if (Number.isNaN(date.getTime())) {
-        return String(dateStr);
+        return raw;
     }
 
     return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
